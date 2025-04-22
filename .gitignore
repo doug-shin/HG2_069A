@@ -1,0 +1,53 @@
+# TI C2000 DSP Project .gitignore file
+
+# Build artifacts
+Debug/
+Release/
+*.out
+*.obj
+*.o
+*.d
+*.exe
+*.elf
+*.map
+*.lst
+*.pp
+*.pbi
+*.pbd
+*.cout
+*.hex
+*.bin
+
+# Code Composer Studio specific
+.metadata/
+.launches/
+.settings/
+.xdchelp
+.config/
+dvt/
+RemoteSystemsTempFiles/
+.generated_files/
+Debug_*/
+Release_*/
+*.launch
+
+# CCS Configuration
+*.ccxml
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+._*
+
+# Automatically generated files
+*.opt
+*.xml.config
+*.xml_gen
+
+# Other files
+.vscode/
+*.log 
