@@ -520,7 +520,7 @@ _TvCpStatus CpCoreDriverInit(_U08 ubPhyIfV, _TsCpPort * ptsPortV)
    /* The following block for all 150 MHz SYSCLKOUT (75 MHz CAN clock) - default.
     * Bit rate = 1 Mbps. See Note at End of File */
 
-//  SPRUH18 ±â¼ú¹®¼­
+//  SPRUH18 ê¸°ìˆ ë¬¸ì„œ
 
 
 // ECanaShadow.CANBTC.bit.BRPREG = 4;   //   1 Mbps

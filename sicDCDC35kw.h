@@ -120,7 +120,7 @@ typedef union {
 
 
 
-typedef enum // code composer studio °³¹ßÅøÀº _·Î ½ÃÀÛÇÏ´Â º¯¼ö´Â ¿ÍÄ¡ º¯¼ö¿¡¼­ ¹Ù²îÁö ¾ÊÀ½. ÄÄÆÄÀÏÀº µÊ.
+typedef enum // code composer studio ê°œë°œíˆ´ì€ _ë¡œ ì‹œì‘í•˜ëŠ” ë³€ìˆ˜ëŠ” ì™€ì¹˜ ë³€ìˆ˜ì—ì„œ ë°”ë€Œì§€ ì•ŠìŒ. ì»´íŒŒì¼ì€ ë¨.
 {
     e1000ms  = 100000, // 1hz
     e100ms   = 10000,  // 10hz
@@ -203,10 +203,10 @@ float32 KP_out = 0;
 float32 Voh_KP_out = 0;
 float32 Vol_KP_out = 0;
 
-// UI¿¡¼­ ¸¶ÀÌ³Ê½º Àü·ù Áö·ÉÀ» ÁÙ ¼ö ¾øµµ·Ï µÇ¾îÀÖÀ½
-// Icom_Pos +Àü·ùÁö·É(ÃæÀü¸ğµå)
-// Icom_Neg -Àü·ùÁö·É(È¸»ı¸ğµå)
-// V_com Àü¾ĞÁö·É
+// UIì—ì„œ ë§ˆì´ë„ˆìŠ¤ ì „ë¥˜ ì§€ë ¹ì„ ì¤„ ìˆ˜ ì—†ë„ë¡ ë˜ì–´ìˆìŒ
+// Icom_Pos +ì „ë¥˜ì§€ë ¹(ì¶©ì „ëª¨ë“œ)
+// Icom_Neg -ì „ë¥˜ì§€ë ¹(íšŒìƒëª¨ë“œ)
+// V_com ì „ì••ì§€ë ¹
 
 
 float Icom_temp;
@@ -234,7 +234,7 @@ volatile float32 Temp_ad;
 Uint16 Io_ad = 0;
 volatile float32 Vo_ad;
 
-//½ÃÇè¿ë
+//ì‹œí—˜ìš©
 Uint16 Test_Temp = 0;
 Uint16 Test_Temp1 = 0;
 float32 Test_Temp2 = 0;

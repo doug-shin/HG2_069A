@@ -404,7 +404,7 @@ xMBPortSerialPutByte( CHAR ucByte )
 
 //    b485_Fault_detect_start = 1;
 
-//    cnt_buf = cnt_buf - 2; // Á¤»ó »óÅÂ
+//    cnt_buf = cnt_buf - 2; // ì •ìƒ ìƒíƒœ
 //    if(cnt_buf < 0) cnt_buf = 0;
 
 
@@ -418,12 +418,12 @@ xMBPortSerialGetByte( CHAR * pucByte )
 {
     /* Return the byte in the UARTs receive buffer. This function is called
      * by the protocol stack after pxMBFrameCBByteReceived( ) has been called.
-     * UART ¼ö½Å ¹öÆÛÀÇ ¹ÙÀÌÆ®¸¦ ¹İÈ¯ÇÕ´Ï´Ù.
-     * ÀÌ ÇÔ¼ö´Â pxMBFrameCBByteReceived( )°¡ È£ÃâµÈ ÈÄ ÇÁ·ÎÅäÄİ ½ºÅÃ¿¡ ÀÇÇØ È£ÃâµË´Ï´Ù.
+     * UART ìˆ˜ì‹  ë²„í¼ì˜ ë°”ì´íŠ¸ë¥¼ ë°˜í™˜í•©ë‹ˆë‹¤.
+     * ì´ í•¨ìˆ˜ëŠ” pxMBFrameCBByteReceived( )ê°€ í˜¸ì¶œëœ í›„ í”„ë¡œí† ì½œ ìŠ¤íƒì— ì˜í•´ í˜¸ì¶œë©ë‹ˆë‹¤.
      */
 
 static Uint16 k;
-//    while(SciaRegs.SCIFFRX.bit.RXFFST == 0) { } // wait for RXFFST !=0 for data, ¼Û½Å FIFO ºñ¾îÀÖÀ½, ¿öµå°¡ Ã¤¿öÁö¸é ·çÇÁ¸¦ ºüÁ®³ª°¨
+//    while(SciaRegs.SCIFFRX.bit.RXFFST == 0) { } // wait for RXFFST !=0 for data, ì†¡ì‹  FIFO ë¹„ì–´ìˆìŒ, ì›Œë“œê°€ ì±„ì›Œì§€ë©´ ë£¨í”„ë¥¼ ë¹ ì ¸ë‚˜ê°
 //    while (SciaRegs.SCIRXST.bit.RXRDY == 0) { } // wait for RX Ready
 
     *pucByte = (UCHAR)ScibRegs.SCIRXBUF.all;
@@ -712,7 +712,7 @@ eMBPoll( void )
 
                     b485_Fault_detect_start = 1;
 
-                    b485_Fault = 0; // Ãß°¡ 20150828 ÀÌ°ÇÈÆ : ui reset °ü·Ã
+                    b485_Fault = 0; // ì¶”ê°€ 20150828 ì´ê±´í›ˆ : ui reset ê´€ë ¨
                 }
                 else if(ucRcvAddress == EIM_Address)
                 {

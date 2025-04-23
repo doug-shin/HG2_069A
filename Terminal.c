@@ -33,7 +33,7 @@
 Uint16 test_variable = 20;
 
 
-// 232 ∑Œ±◊ √‚∑¬ ON/OFF - UIø° «√∑°±◊ ∏∏µÈæÓº≠ ∞¸∏Æ
+// 232 Î°úÍ∑∏ Ï∂úÎ†• ON/OFF - UIÏóê ÌîåÎûòÍ∑∏ ÎßåÎì§Ïñ¥ÏÑú Í¥ÄÎ¶¨
 Uint16 user_test_val = 0;
 Uint16 test_Vout_val_1 = 100, test_Vout_val_2 = 200, test_Vout_val_3 = 300, test_Vout_val_4 = 400, test_Vout_val_5 = 500;
 Uint8 test_Iout_val_1 = 0, test_Iout_val_2 = 10, test_Iout_val_3 = 20, test_Iout_val_4 = 30, test_Iout_val_5 = 40;
@@ -67,9 +67,9 @@ StructUart Uart1, Uart2;
 
 /*******************************************************************************
  * Function Name : char HexToAscii(u8 hex)
- * Description   : 16¡¯ºˆ∏¶ æ∆Ω∫≈∞ƒ⁄µÂ∑Œ ∫Ø»Ø
+ * Description   : 16ÏßÑÏàòÎ•º ÏïÑÏä§ÌÇ§ÏΩîÎìúÎ°ú Î≥ÄÌôò
  * Parameters    : 1byte
- * Return        : æ∆Ω∫≈∞ƒ⁄µÂ
+ * Return        : ÏïÑÏä§ÌÇ§ÏΩîÎìú
  *******************************************************************************/
 char HexToAscii(Uint8 hex)
 {
@@ -78,8 +78,8 @@ char HexToAscii(Uint8 hex)
 
 /*******************************************************************************
  * Function Name : void UART1_PutChar(u8 data)
- * Description   : UART1 1πÆ¿⁄ √‚∑¬, Transmit one byte
- * Parameters    : æ∆Ω∫≈∞ƒ⁄µÂ
+ * Description   : UART1 1Î¨∏Ïûê Ï∂úÎ†•, Transmit one byte
+ * Parameters    : ÏïÑÏä§ÌÇ§ÏΩîÎìú
  * Return        : None
  *******************************************************************************/
 void UART1_PutChar(Uint8 data)
@@ -113,9 +113,9 @@ void scia_msg(char *msg)
 
 /*******************************************************************************
  * Function Name : u8 UART1_GetChar(u8 *pData)
- * Description   : UART1∑Œ ºˆΩ≈πˆ∆€ø°º≠ µ•¿Ã≈∏(1byte) ∞°¡Æø¿±‚
+ * Description   : UART1Î°ú ÏàòÏã†Î≤ÑÌçºÏóêÏÑú Îç∞Ïù¥ÌÉÄ(1byte) Í∞ÄÏ†∏Ïò§Í∏∞
  * Parameters    : none
- * Return        : µ•¿Ã≈∏ ºˆΩ≈ ø©∫Œ(0: ºˆΩ≈πˆ∆€∞° ∫Òæ˙¿Ω, 1: ºˆΩ≈πˆ∆€ø° µ•¿Ã≈∏∞° ¿÷¿Ω)
+ * Return        : Îç∞Ïù¥ÌÉÄ ÏàòÏã† Ïó¨Î∂Ä(0: ÏàòÏã†Î≤ÑÌçºÍ∞Ä ÎπÑÏóàÏùå, 1: ÏàòÏã†Î≤ÑÌçºÏóê Îç∞Ïù¥ÌÉÄÍ∞Ä ÏûàÏùå)
  *******************************************************************************/
 Uint8 UART1_GetChar(Uint8 *pData)
 {
@@ -131,8 +131,8 @@ Uint8 UART1_GetChar(Uint8 *pData)
 
 /*******************************************************************************
  * Function Name : void UART1_PutStr(char *pStr)
- * Description   : UART1 π»¿⁄ø≠ √‚∑¬
- * Parameters    : πÆ¿⁄ø≠
+ * Description   : UART1 ÎØÑÏûêÏó¥ Ï∂úÎ†•
+ * Parameters    : Î¨∏ÏûêÏó¥
  * Return        : 1byte
  *******************************************************************************/
 void UART1_PutStr(char *pStr)
@@ -145,7 +145,7 @@ void UART1_PutStr(char *pStr)
 
 /*******************************************************************************
  * Function Name : void UART1_PutHex(u8 hex)
- * Description   : UART1 16¡¯ºˆ∞™ 1byte√‚∑¬
+ * Description   : UART1 16ÏßÑÏàòÍ∞í 1byteÏ∂úÎ†•
  * Parameters    : 1byte
  * Return        : none
  *******************************************************************************/
@@ -157,7 +157,7 @@ void UART1_PutHex(Uint8 hex)
 
 /*******************************************************************************
  * Function Name : void UART1_Put2Hex(u16 hex)
- * Description   : UART1 16¡¯ºˆ∞™ 2byte √‚∑¬
+ * Description   : UART1 16ÏßÑÏàòÍ∞í 2byte Ï∂úÎ†•
  * Parameters    : 2byte
  * Return        : none
  *******************************************************************************/
@@ -169,7 +169,7 @@ void UART1_Put2Hex(Uint16 hex)
 
 /*******************************************************************************
  * Function Name : void UART1_Put4Hex(u32 hex)
- * Description   : UART1 16¡¯ºˆ∞™ 4byte √‚∑¬
+ * Description   : UART1 16ÏßÑÏàòÍ∞í 4byte Ï∂úÎ†•
  * Parameters    : 4byte
  * Return        : none
  *******************************************************************************/
@@ -181,8 +181,8 @@ void UART1_Put4Hex(Uint32 hex)
 
 /*******************************************************************************
  * Function Name : UART1_PutDec(u8 cnt,u16 dec)
- * Description   : UART1 10¡¯ºˆ∞™ √‚∑¬(1~5¿⁄∏Æ)
- * Parameters    : √‚∑¬ ¿⁄∏Æºˆ, 2byte
+ * Description   : UART1 10ÏßÑÏàòÍ∞í Ï∂úÎ†•(1~5ÏûêÎ¶¨)
+ * Parameters    : Ï∂úÎ†• ÏûêÎ¶¨Ïàò, 2byte
  * Return        : none
  *******************************************************************************/
 void UART1_PutDec(Uint8 cnt, Uint16 dec)
@@ -196,9 +196,9 @@ void UART1_PutDec(Uint8 cnt, Uint16 dec)
 
 /*******************************************************************************
  * Function Name : u8 AsciiToHex(char ascii)
- * Description   : æ∆Ω∫≈∞ƒ⁄µÂ∏¶ 16¡¯ºˆ∑Œ ∫Ø»Ø
- * Parameters    : æ∆Ω∫≈∞ƒ⁄µÂ
- * Return        : 16¡¯ºˆ
+ * Description   : ÏïÑÏä§ÌÇ§ÏΩîÎìúÎ•º 16ÏßÑÏàòÎ°ú Î≥ÄÌôò
+ * Parameters    : ÏïÑÏä§ÌÇ§ÏΩîÎìú
+ * Return        : 16ÏßÑÏàò
  *******************************************************************************/
 Uint8 AsciiToHex(char ascii)
 {
@@ -220,7 +220,7 @@ Uint8 Term_Send_RAMStr(Uint8 *str)
     return count;                       // Return byte count
 }
 
-void total_operating_time(void) // ¡§»Æ«— ¿Œ≈Õ∑¥∆Æ 100ms ≈∏¿Ã∏”ø°º≠ call «“ ∞Õ
+void total_operating_time(void) // Ï†ïÌôïÌïú Ïù∏ÌÑ∞ÎüΩÌä∏ 100ms ÌÉÄÏù¥Î®∏ÏóêÏÑú call Ìï† Í≤É
 {
     if (g_elapsed_time++ >= 864000) // 1day = 24hour = 1440min = 86400sec, 100ms timer
     {
@@ -255,33 +255,33 @@ void Send_Terminal (void)
 //    else                {UART1_PutStr(T_BrGREEN);UART1_PutStr("OFF "); UART1_PutStr(T_RESET);}
 
     switch(eChargeMode){
-    case ElectronicLoad_CV_Mode        :  msg = "¿¸¿⁄∑ŒµÂ    -CV \0"; break; //  2
-    case ElectronicLoad_CC_Mode        :  msg = "¿¸¿⁄∑ŒµÂ    -CC \0"; break; //  4
-    case ElectronicLoad_CR_Mode        :  msg = "¿¸¿⁄∑ŒµÂ    -CR \0"; break; //  8
-    case PowerSupply_CV_Mode           :  msg = "¿¸ø¯∞¯±ﬁ¿Âƒ°-CV \0"; break; //  16
-    case PowerSupply_CC_Mode           :  msg = "¿¸ø¯∞¯±ﬁ¿Âƒ°-CC \0"; break; //  32
-    case Battery_Charg_Discharg_CC_Mode:  msg = "πË≈Õ∏Æ      -CC \0"; break; //  64
-    case As_a_Battery_CV_Mode          :  msg = "πË≈Õ∏Æ      -CV \0"; break; // 128
-    default                            :  msg = "UI∏µÂ º±≈√æ»µ  \0"; break;
+    case ElectronicLoad_CV_Mode        :  msg = "Ï†ÑÏûêÎ°úÎìú    -CV \0"; break; //  2
+    case ElectronicLoad_CC_Mode        :  msg = "Ï†ÑÏûêÎ°úÎìú    -CC \0"; break; //  4
+    case ElectronicLoad_CR_Mode        :  msg = "Ï†ÑÏûêÎ°úÎìú    -CR \0"; break; //  8
+    case PowerSupply_CV_Mode           :  msg = "Ï†ÑÏõêÍ≥µÍ∏âÏû•Ïπò-CV \0"; break; //  16
+    case PowerSupply_CC_Mode           :  msg = "Ï†ÑÏõêÍ≥µÍ∏âÏû•Ïπò-CC \0"; break; //  32
+    case Battery_Charg_Discharg_CC_Mode:  msg = "Î∞∞ÌÑ∞Î¶¨      -CC \0"; break; //  64
+    case As_a_Battery_CV_Mode          :  msg = "Î∞∞ÌÑ∞Î¶¨      -CV \0"; break; // 128
+    default                            :  msg = "UIÎ™®Îìú ÏÑ†ÌÉùÏïàÎê® \0"; break;
     }
     scia_msg(msg);
 
     if(eChargeMode == Battery_Charg_Discharg_CC_Mode)
     {
-        msg = "Vh_lim: "; scia_msg(msg); // ¡ˆ∑…¿¸æ– high
+        msg = "Vh_lim: "; scia_msg(msg); // ÏßÄÎ†πÏ†ÑÏïï high
         if     (V_high_limit >= 1000) {                    UART1_PutDec(4, (Uint16)V_high_limit);}
         else if(V_high_limit >=  100) {UART1_PutStr(" ");  UART1_PutDec(3, (Uint16)V_high_limit);}
         else if(V_high_limit >=   10) {UART1_PutStr("  "); UART1_PutDec(2, (Uint16)V_high_limit);}
         else                          {UART1_PutStr("   ");UART1_PutDec(1, (Uint16)V_high_limit);}
         UART1_PutStr(" [V] ");
 
-        msg = "Vl_lim: "; scia_msg(msg); // ¡ˆ∑…¿¸æ– low
+        msg = "Vl_lim: "; scia_msg(msg); // ÏßÄÎ†πÏ†ÑÏïï low
         if     (V_low_limit >= 100) {                   UART1_PutDec(3, (Uint16)V_low_limit);}
         else if(V_low_limit >=  10) {UART1_PutStr(" "); UART1_PutDec(2, (Uint16)V_low_limit);}
         else                         {UART1_PutStr("  ");UART1_PutDec(1, (Uint16)V_low_limit);}
         UART1_PutStr(" [V] ");
 
-        UART1_PutStr("I_Ref: ");       // ¡ˆ∑…¿¸∑˘
+        UART1_PutStr("I_Ref: ");       // ÏßÄÎ†πÏ†ÑÎ•ò
         if     (Iout_Reference >= 100) {UART1_PutStr(" ");  UART1_PutDec(3, (Uint16)Iout_Reference);}
         else if(Iout_Reference >=  10) {UART1_PutStr("  "); UART1_PutDec(2, (Uint16)Iout_Reference);}
         else if(Iout_Reference <    0) {UART1_PutStr(T_BrRED);UART1_PutStr("-"); UART1_PutDec(3,       ~(Iout_Reference)+1); UART1_PutStr(T_RESET);} // two's complement
@@ -290,14 +290,14 @@ void Send_Terminal (void)
     }
     else
     {
-        msg = "V_Ref: "; scia_msg(msg); // ¡ˆ∑…¿¸æ–
+        msg = "V_Ref: "; scia_msg(msg); // ÏßÄÎ†πÏ†ÑÏïï
         if     (Vout_Reference >= 1000) {                    UART1_PutDec(4, (Uint16)Vout_Reference);}
         else if(Vout_Reference >=  100) {UART1_PutStr(" ");  UART1_PutDec(3, (Uint16)Vout_Reference);}
         else if(Vout_Reference >=   10) {UART1_PutStr("  "); UART1_PutDec(2, (Uint16)Vout_Reference);}
         else                            {UART1_PutStr("   ");UART1_PutDec(1, (Uint16)Vout_Reference);}
         UART1_PutStr(" [V] ");
 
-        UART1_PutStr("I_Ref: ");       // ¡ˆ∑…¿¸∑˘
+        UART1_PutStr("I_Ref: ");       // ÏßÄÎ†πÏ†ÑÎ•ò
         if     (Iout_Reference >= 100) {UART1_PutStr(" ");  UART1_PutDec(3, (Uint16)Iout_Reference);}
         else if(Iout_Reference >=  10) {UART1_PutStr("  "); UART1_PutDec(2, (Uint16)Iout_Reference);}
         else if(Iout_Reference <    0) {UART1_PutStr(T_BrRED);UART1_PutStr("-"); UART1_PutDec(3,       ~(Iout_Reference)+1); UART1_PutStr(T_RESET);} // two's complement
@@ -323,11 +323,11 @@ void Send_Terminal (void)
 //    else               {UART1_PutStr("  ");UART1_PutDec(1, (Uint16)Io);}
 
     // RED, YELLOW, GREEN
-//    UART1_PutStr(" ø¬µµ: ");
+//    UART1_PutStr(" Ïò®ÎèÑ: ");
 //    if     (In_Temp >= 100) {                   UART1_PutDec(3, (Uint16)In_Temp);}
 //    else if(In_Temp >=  10) {UART1_PutStr(" "); UART1_PutDec(2, (Uint16)In_Temp);}
 //    else                    {UART1_PutStr("  ");UART1_PutDec(1, (Uint16)In_Temp);}
-//    UART1_PutStr(" [°…] ");
+//    UART1_PutStr(" [‚ÑÉ] ");
 //
 //    Power = Vo * Io * 0.001f; // kw
 //
@@ -348,8 +348,8 @@ void Send_Terminal (void)
     //UART1_PutStr("\033[32m\n");   // GREEN
     //UART1_PutStr("\033[33m\n");   // YELLOW
     //UART1_PutStr("\033[34m\n");   // BLUE
-// ≈ÎΩ≈ ø°∑Ø
-// EEPROM ¿˙¿Â ∞™
+// ÌÜµÏã† ÏóêÎü¨
+// EEPROM Ï†ÄÏû• Í∞í
 
 //    msg = "\r\n";
 //    scia_msg(msg);

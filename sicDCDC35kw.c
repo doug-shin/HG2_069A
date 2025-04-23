@@ -1,50 +1,50 @@
  //###########################################################################
-// 2025.02.26 final Á¤»ó µ¿ÀÛ È®ÀÎ
+// 2025.02.26 final ì •ìƒ ë™ì‘ í™•ì¸
 
 /*
- * HMI¿Í ¸¶½ºÅÍ º¸µå RS232 Modbus RTU·Î Åë½ÅÇÑ´Ù. 38400bps, 8bit, 1bit, none, HMI¿¡¼­ 100ms polling
- * ¸¶½ºÅÍ º¸µå¿¡¼­ °è»êÇÑ PI Ãâ·Â °ªÀ» DAC°ªÀ¸·Î È¯»êÇÏ¿© 485 Åë½ÅÀ¸·Î Àü¼ÛÇÑ´Ù(Àü·ùÁö·É Àü¼Û). Åë½Å¼Óµµ´Â 5.625MbpsÀÌ°í, 0.1ms ¸¶´Ù ÇÑ¹ø¿¡ 9byte¸¦ Àü¼ÛÇÑ´Ù.
- * ¸¶½ºÅÍ º¸µå¿Í ½½·¹ÀÌºê º¸µå´Â ÇÁ·Î¼¼¼­°¡ °°¾Æ¼­ baud ¿¡·¯À²ÀÌ ¾ø´Ù.
- * ¸¶½ºÅÍ º¸µå´Â DIP ½ºÀ§Ä¡¿Í °ü°è¾øÀÌ CAN ID°¡ 0xF0·Î °íÁ¤µÇ¾î ÀÖ´Ù.
- * ½½·¹ÀÌºê º¸µå´Â DIP ½ºÀ§Ä¡¸¦ 1~9±îÁö ¼³Á¤ÇÏ¿© ID¸¦ Á¤ÇÑ´Ù. Á¤ÇØÁø ¼³Á¤ ID¿¡ 0xF0¸¦ ´õÇÏ¿© ½½·¹ÀÌºê CAN ID°¡ ¼³Á¤µÈ´Ù. 0xF1~0xF9
- * CAN°ú 485 Åë½Å Á¾´Ü ÀúÇ×Àº ¸Ç Ã³À½°ú ¸Ç ³¡¿¡¸¸ ´Ş¾Æ¾ß ÇÑ´Ù.
- * 485ÀÇ Á¾´Ü ÀúÇ× ¾ç´Ü¿¡ Àü¾ĞÀº 200mVÀÌ»óÀÌ °É·Á¾ß ÇÑ´Ù.
- * ¸¶½ºÅÍ º¸µå´Â ON/OFF ½ÅÈ£¸¦ ½½·¹ÀÌºê º¸µå¿¡ CAN 2.0A ¹æ½ÄÀ¸·Î Àü¼ÛÇÑ´Ù. Åë½Å¼Óµµ 1Mbps, 1ms polling, 1 frame ´ç CAN BUS ·ÎµåÀ²Àº ¾à 8~9% ÀÌ´Ù.
- * ½½·¹ÀÌºê º¸µåµéÀº CAN ¿ì¼± ¼øÀ§´ë·Î ¸¶½ºÅÍ·Î ¼¾½Ì Àü·ù(Ãâ·Â Àü·ù)¸¦ Àü¼ÛÇÑ´Ù. °¢ ½½·¹ÀÌºê º¸µå°¡ 1ms¸¶´Ù ¸¶½ºÅÍ·Î µ¥ÀÌÅÍ¸¦ Àü¼ÛÇÑ´Ù. ¸¶½ºÅÍ¿¡¼­´Â 10msµ¿¾È¿¡ °¢°¢ÀÇ ¸ğµç ½½·¹ÀÌºêÀÇ Àü·ù µ¥ÀÌÅÍ¸¦ ¼ö½ÅÇÑ´Ù.
- * ½½·¹ÀÌºê º¸µå  RS-232(SCI-B)   ½½·¹ÀÌºê º¸µåÀÇ ³»ºÎ º¯¼ö ¸ğ´ÏÅÍ¸µ Termial(TeraTerm)   100ms       230400bps
+ * HMIì™€ ë§ˆìŠ¤í„° ë³´ë“œ RS232 Modbus RTUë¡œ í†µì‹ í•œë‹¤. 38400bps, 8bit, 1bit, none, HMIì—ì„œ 100ms polling
+ * ë§ˆìŠ¤í„° ë³´ë“œì—ì„œ ê³„ì‚°í•œ PI ì¶œë ¥ ê°’ì„ DACê°’ìœ¼ë¡œ í™˜ì‚°í•˜ì—¬ 485 í†µì‹ ìœ¼ë¡œ ì „ì†¡í•œë‹¤(ì „ë¥˜ì§€ë ¹ ì „ì†¡). í†µì‹ ì†ë„ëŠ” 5.625Mbpsì´ê³ , 0.1ms ë§ˆë‹¤ í•œë²ˆì— 9byteë¥¼ ì „ì†¡í•œë‹¤.
+ * ë§ˆìŠ¤í„° ë³´ë“œì™€ ìŠ¬ë ˆì´ë¸Œ ë³´ë“œëŠ” í”„ë¡œì„¸ì„œê°€ ê°™ì•„ì„œ baud ì—ëŸ¬ìœ¨ì´ ì—†ë‹¤.
+ * ë§ˆìŠ¤í„° ë³´ë“œëŠ” DIP ìŠ¤ìœ„ì¹˜ì™€ ê´€ê³„ì—†ì´ CAN IDê°€ 0xF0ë¡œ ê³ ì •ë˜ì–´ ìˆë‹¤.
+ * ìŠ¬ë ˆì´ë¸Œ ë³´ë“œëŠ” DIP ìŠ¤ìœ„ì¹˜ë¥¼ 1~9ê¹Œì§€ ì„¤ì •í•˜ì—¬ IDë¥¼ ì •í•œë‹¤. ì •í•´ì§„ ì„¤ì • IDì— 0xF0ë¥¼ ë”í•˜ì—¬ ìŠ¬ë ˆì´ë¸Œ CAN IDê°€ ì„¤ì •ëœë‹¤. 0xF1~0xF9
+ * CANê³¼ 485 í†µì‹  ì¢…ë‹¨ ì €í•­ì€ ë§¨ ì²˜ìŒê³¼ ë§¨ ëì—ë§Œ ë‹¬ì•„ì•¼ í•œë‹¤.
+ * 485ì˜ ì¢…ë‹¨ ì €í•­ ì–‘ë‹¨ì— ì „ì••ì€ 200mVì´ìƒì´ ê±¸ë ¤ì•¼ í•œë‹¤.
+ * ë§ˆìŠ¤í„° ë³´ë“œëŠ” ON/OFF ì‹ í˜¸ë¥¼ ìŠ¬ë ˆì´ë¸Œ ë³´ë“œì— CAN 2.0A ë°©ì‹ìœ¼ë¡œ ì „ì†¡í•œë‹¤. í†µì‹ ì†ë„ 1Mbps, 1ms polling, 1 frame ë‹¹ CAN BUS ë¡œë“œìœ¨ì€ ì•½ 8~9% ì´ë‹¤.
+ * ìŠ¬ë ˆì´ë¸Œ ë³´ë“œë“¤ì€ CAN ìš°ì„  ìˆœìœ„ëŒ€ë¡œ ë§ˆìŠ¤í„°ë¡œ ì„¼ì‹± ì „ë¥˜(ì¶œë ¥ ì „ë¥˜)ë¥¼ ì „ì†¡í•œë‹¤. ê° ìŠ¬ë ˆì´ë¸Œ ë³´ë“œê°€ 1msë§ˆë‹¤ ë§ˆìŠ¤í„°ë¡œ ë°ì´í„°ë¥¼ ì „ì†¡í•œë‹¤. ë§ˆìŠ¤í„°ì—ì„œëŠ” 10msë™ì•ˆì— ê°ê°ì˜ ëª¨ë“  ìŠ¬ë ˆì´ë¸Œì˜ ì „ë¥˜ ë°ì´í„°ë¥¼ ìˆ˜ì‹ í•œë‹¤.
+ * ìŠ¬ë ˆì´ë¸Œ ë³´ë“œ  RS-232(SCI-B)   ìŠ¬ë ˆì´ë¸Œ ë³´ë“œì˜ ë‚´ë¶€ ë³€ìˆ˜ ëª¨ë‹ˆí„°ë§ Termial(TeraTerm)   100ms       230400bps
  *
  */
 
-// 20khz(50us)·Î PIµ¿ÀÛ, RS485 Tx, CAN Tx´Â main¿¡¼­, SPI´Â 100khz ¸¶´Ù
-// OFF »óÅÂÀÏ ¶§ DAC °ª ¾à 2000 È®ÀÎ
-// -> 3À¸·Î ¼³Á¤ÇØ¾ß LSPCLK 90Mhz/(3+1) = 22.5Mhz°¡ µÇ¾î¼­ ¸Â´Â µí. ¼ÒÀå´Ô²² È®ÀÎ ´õ ´À·Áµµ µÇ´ÂÁö? ¾Æ´Ï¸é 22.5Mhz°¡ ¸Â´ÂÁö?
-// -> 7·Î ¼³Á¤ÇÏ¸é  LSPCLK 90Mhz/(7+1) = 11.25Mhz°¡ µÊ. ¾ğÁ¦ ºÎÅÍ ¹Ù²î¾ú´ÂÁö È®ÀÎ ÇÊ¿ä.
+// 20khz(50us)ë¡œ PIë™ì‘, RS485 Tx, CAN TxëŠ” mainì—ì„œ, SPIëŠ” 100khz ë§ˆë‹¤
+// OFF ìƒíƒœì¼ ë•Œ DAC ê°’ ì•½ 2000 í™•ì¸
+// -> 3ìœ¼ë¡œ ì„¤ì •í•´ì•¼ LSPCLK 90Mhz/(3+1) = 22.5Mhzê°€ ë˜ì–´ì„œ ë§ëŠ” ë“¯. ì†Œì¥ë‹˜ê»˜ í™•ì¸ ë” ëŠë ¤ë„ ë˜ëŠ”ì§€? ì•„ë‹ˆë©´ 22.5Mhzê°€ ë§ëŠ”ì§€?
+// -> 7ë¡œ ì„¤ì •í•˜ë©´  LSPCLK 90Mhz/(7+1) = 11.25Mhzê°€ ë¨. ì–¸ì œ ë¶€í„° ë°”ë€Œì—ˆëŠ”ì§€ í™•ì¸ í•„ìš”.
 
-// GPIO5,6,7,8  DIP ½ºÀ§Ä¡·Î CAN ID¸¦ ¼³Á¤ÇÏ¿© È®ÀÎÇÑ´Ù.
-// master¿¡¼­´Â ½ÃÀÛ/Á¤Áö ¸í·É°ú Àü·ù Áö·ÉÀ» slave·Î Àü´ŞÇÑ´Ù.
-// master¿¡¼­´Â PI¸¸ ÇÏ°í ±× °á°ú°ªÀ» slave1,2·Î Àü´ŞÇÏ¿© slave1,2¿¡¼­ dac¸¦ Ãâ·ÂÇÑ´Ù. 2°³ ½½·¹ÀÌºê º´·ÄÀÌ¹Ç·Î 160A ÀÏ¶§ slave1°ú slave2´Â °¢°¢ 4V¸¦ Ãâ·ÂÇÑ´Ù. -160A´Â °¢°¢ 0V¸¦ Ãâ·ÂÇÑ´Ù.
-// slave´Â canÀ¸·Î ÀÀ´ä
-// slave´Â 232¸¦ »ç¿ëÇÏÁö ¾ÊÀ¸¹Ç·Î ÅÍ¹Ì³ÎÀ» »ì¸°´Ù. CAN ID Ç¥½Ã, master¿¡¼­ ¼ö½Å¹ŞÀº Áö·É Ç¥½Ã
+// GPIO5,6,7,8  DIP ìŠ¤ìœ„ì¹˜ë¡œ CAN IDë¥¼ ì„¤ì •í•˜ì—¬ í™•ì¸í•œë‹¤.
+// masterì—ì„œëŠ” ì‹œì‘/ì •ì§€ ëª…ë ¹ê³¼ ì „ë¥˜ ì§€ë ¹ì„ slaveë¡œ ì „ë‹¬í•œë‹¤.
+// masterì—ì„œëŠ” PIë§Œ í•˜ê³  ê·¸ ê²°ê³¼ê°’ì„ slave1,2ë¡œ ì „ë‹¬í•˜ì—¬ slave1,2ì—ì„œ dacë¥¼ ì¶œë ¥í•œë‹¤. 2ê°œ ìŠ¬ë ˆì´ë¸Œ ë³‘ë ¬ì´ë¯€ë¡œ 160A ì¼ë•Œ slave1ê³¼ slave2ëŠ” ê°ê° 4Vë¥¼ ì¶œë ¥í•œë‹¤. -160AëŠ” ê°ê° 0Vë¥¼ ì¶œë ¥í•œë‹¤.
+// slaveëŠ” canìœ¼ë¡œ ì‘ë‹µ
+// slaveëŠ” 232ë¥¼ ì‚¬ìš©í•˜ì§€ ì•Šìœ¼ë¯€ë¡œ í„°ë¯¸ë„ì„ ì‚´ë¦°ë‹¤. CAN ID í‘œì‹œ, masterì—ì„œ ìˆ˜ì‹ ë°›ì€ ì§€ë ¹ í‘œì‹œ
 
 
-// CAN 2.0B Bus Load Rate -> 2.0A·Î ÇÏ¸é 100us ¼Ò¿äµÉµí
+// CAN 2.0B Bus Load Rate -> 2.0Aë¡œ í•˜ë©´ 100us ì†Œìš”ë ë“¯
 /*
-1000kbps·Î 1 bit¸¦ Àü¼ÛÇÏ´Âµ¥ 1us°¡ °É¸°´Ù.
-130bit(CAN 1 Frame)À» Àü¼ÛÇÏ´Âµ¥ °É¸®´Â ½Ã°£Àº 130usÀÌ´Ù.
-1ms ¸¶´Ù 1 Frame¾¿ ¸Å¹ø Àü¼ÛÇÑ´Ù°í °¡Á¤ÇÏ¸é
-1ms ½Ã°£µ¿¾È bus´Â 130usµ¿¾È¸¸ Â÷ÁöµÉ °ÍÀÌ°í
+1000kbpsë¡œ 1 bitë¥¼ ì „ì†¡í•˜ëŠ”ë° 1usê°€ ê±¸ë¦°ë‹¤.
+130bit(CAN 1 Frame)ì„ ì „ì†¡í•˜ëŠ”ë° ê±¸ë¦¬ëŠ” ì‹œê°„ì€ 130usì´ë‹¤.
+1ms ë§ˆë‹¤ 1 Frameì”© ë§¤ë²ˆ ì „ì†¡í•œë‹¤ê³  ê°€ì •í•˜ë©´
+1ms ì‹œê°„ë™ì•ˆ busëŠ” 130usë™ì•ˆë§Œ ì°¨ì§€ë  ê²ƒì´ê³ 
 
-130/1000 //  1ms ¸¶´Ù ¹ö½º ·Îµå´Â 13%·Î °è»êµÈ´Ù. 1khz
-130/200  // 0.2ms ¸¶´Ù ¹ö½º ·Îµå´Â 65%·Î °è»êµÈ´Ù.
+130/1000 //  1ms ë§ˆë‹¤ ë²„ìŠ¤ ë¡œë“œëŠ” 13%ë¡œ ê³„ì‚°ëœë‹¤. 1khz
+130/200  // 0.2ms ë§ˆë‹¤ ë²„ìŠ¤ ë¡œë“œëŠ” 65%ë¡œ ê³„ì‚°ëœë‹¤.
 
-½ÇÇè°á°ú 25k¸¶´Ù º¸³Â´Âµ¥ ¼ö½Å ÇÁ·Î±×·¥¿¡¼­´Â 0.15ms ¸¶´Ù ¼ö½ÅµÆÀ½.
+ì‹¤í—˜ê²°ê³¼ 25kë§ˆë‹¤ ë³´ëƒˆëŠ”ë° ìˆ˜ì‹  í”„ë¡œê·¸ë¨ì—ì„œëŠ” 0.15ms ë§ˆë‹¤ ìˆ˜ì‹ ëìŒ.
 
-130/100  // 0.1ms ¸¶´Ù´Â ¾È µÊ. 100%¸¦ ³Ñ¾î °¨. 10khz
+130/100  // 0.1ms ë§ˆë‹¤ëŠ” ì•ˆ ë¨. 100%ë¥¼ ë„˜ì–´ ê°. 10khz
  */
 
 //100 1khz = 13%    1ms
 //50 2khz = 25%
-//10 10khz = 60%    0.1ms -> ¼ö½Å ÇÁ·Î±×·¥¿¡¼­´Â 0.22ms·Î ¼ö½ÅµÊ
+//10 10khz = 60%    0.1ms -> ìˆ˜ì‹  í”„ë¡œê·¸ë¨ì—ì„œëŠ” 0.22msë¡œ ìˆ˜ì‹ ë¨
 //9 11.11khz = 66%
 //8 12.5khz = 73%
 //7 14.2857khz = 82%
@@ -57,16 +57,16 @@
 
 //
 /*
- * RXERR INT ENA(SCICTL1ÀÇ ºñÆ® 6) ºñÆ®¸¦ È°¼ºÈ­ÇÏ¿© ¼ö½Å ¿À·ù°¡ ¹ß»ıÇÒ ¶§ ÀÎÅÍ·´Æ®¸¦ »ı¼ºÇÒ ¼ö ÀÖ½À´Ï´Ù.
- * ÀÌ ºñÆ®¸¦ È°¼ºÈ­ÇÏ¸é Áß´ÜÀÌ³ª ¼ö½Å ¿À·ù°¡ ¹ß»ıÇÒ ¶§ ÀÎÅÍ·´Æ®(PIE ¹× SCI¸¦ ¿Ã¹Ù¸£°Ô ±¸¼ºÇß´Ù°í °¡Á¤)°¡ »ı¼ºµË´Ï´Ù.
- * SCI RX INT ISR¿¡¼­ SCIRXST ·¹Áö½ºÅÍ¸¦ È®ÀÎÇÏ¿© ¾î¶² ¿À·ù(Áß´Ü °¨Áö ¿À·ù, ÇÁ·¹ÀÌ¹Ö ¿À·ù, ¿À¹ö·± ¿À·ù ¹× ÆĞ¸®Æ¼ ¿À·ù)°¡ ¹ß»ıÇß´ÂÁö ¾Ë ¼ö ÀÖ½À´Ï´Ù.
- * SCICTL1 ·¹Áö½ºÅÍÀÇ SW RESET ºñÆ®¸¦ »ç¿ëÇÏ¿© ¿À·ù ÇÃ·¡±×¸¦ »èÁ¦ÇÒ ¼ö ÀÖ½À´Ï´Ù.
- * Áß´Ü °¨Áö ¿À·ù ¹ß»ı ½Ã SCI´Â µ¥ÀÌÅÍ ¼ö½ÅÀ» ÁßÁöÇÕ´Ï´Ù. µ¥ÀÌÅÍ ¼ö½ÅÀ» ½ÃÀÛÇÏ·Á¸é SW RESET ºñÆ®¸¦ Åä±ÛÇÏ¿© SCI¸¦ Àç¼³Á¤ÇØ¾ß ÇÕ´Ï´Ù.
- *  SCI RX ISR¿¡¼­ SCIRXST ·¹Áö½ºÅÍ¸¦ È®ÀÎÇÏ¿© ¾î¶² ¿À·ù°¡ ¹ß»ıÇß´ÂÁö È®ÀÎÇÒ ¼ö ÀÖ½À´Ï´Ù.
+ * RXERR INT ENA(SCICTL1ì˜ ë¹„íŠ¸ 6) ë¹„íŠ¸ë¥¼ í™œì„±í™”í•˜ì—¬ ìˆ˜ì‹  ì˜¤ë¥˜ê°€ ë°œìƒí•  ë•Œ ì¸í„°ëŸ½íŠ¸ë¥¼ ìƒì„±í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
+ * ì´ ë¹„íŠ¸ë¥¼ í™œì„±í™”í•˜ë©´ ì¤‘ë‹¨ì´ë‚˜ ìˆ˜ì‹  ì˜¤ë¥˜ê°€ ë°œìƒí•  ë•Œ ì¸í„°ëŸ½íŠ¸(PIE ë° SCIë¥¼ ì˜¬ë°”ë¥´ê²Œ êµ¬ì„±í–ˆë‹¤ê³  ê°€ì •)ê°€ ìƒì„±ë©ë‹ˆë‹¤.
+ * SCI RX INT ISRì—ì„œ SCIRXST ë ˆì§€ìŠ¤í„°ë¥¼ í™•ì¸í•˜ì—¬ ì–´ë–¤ ì˜¤ë¥˜(ì¤‘ë‹¨ ê°ì§€ ì˜¤ë¥˜, í”„ë ˆì´ë° ì˜¤ë¥˜, ì˜¤ë²„ëŸ° ì˜¤ë¥˜ ë° íŒ¨ë¦¬í‹° ì˜¤ë¥˜)ê°€ ë°œìƒí–ˆëŠ”ì§€ ì•Œ ìˆ˜ ìˆìŠµë‹ˆë‹¤.
+ * SCICTL1 ë ˆì§€ìŠ¤í„°ì˜ SW RESET ë¹„íŠ¸ë¥¼ ì‚¬ìš©í•˜ì—¬ ì˜¤ë¥˜ í”Œë˜ê·¸ë¥¼ ì‚­ì œí•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
+ * ì¤‘ë‹¨ ê°ì§€ ì˜¤ë¥˜ ë°œìƒ ì‹œ SCIëŠ” ë°ì´í„° ìˆ˜ì‹ ì„ ì¤‘ì§€í•©ë‹ˆë‹¤. ë°ì´í„° ìˆ˜ì‹ ì„ ì‹œì‘í•˜ë ¤ë©´ SW RESET ë¹„íŠ¸ë¥¼ í† ê¸€í•˜ì—¬ SCIë¥¼ ì¬ì„¤ì •í•´ì•¼ í•©ë‹ˆë‹¤.
+ *  SCI RX ISRì—ì„œ SCIRXST ë ˆì§€ìŠ¤í„°ë¥¼ í™•ì¸í•˜ì—¬ ì–´ë–¤ ì˜¤ë¥˜ê°€ ë°œìƒí–ˆëŠ”ì§€ í™•ì¸í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
  */
 
 // LED11, LED12, LED13 (PIN 31, 32, 33)
-// ADC0 - ¿Âµµ
+// ADC0 - ì˜¨ë„
 // ADC1 - 100A 3V, 0A 1.5V, -100A 0V (100A 5mA 5V -> 100A 5mA 3V, -100A -5mA -5V -> -100A -5mA -3V)
 // 24LC128
 // EEROM-SDA GPIO32
@@ -78,19 +78,19 @@
 // SPI (ADC chip)
 
 
-/* ÇØ¾ß ÇÒÀÏ
-FAN ¿Âµµ¿¡ µû¸¥ PWM Duty °¡º¯ ¾È µÊ. 0.15 fix
-½½·¹ÀÌºê º¸µå CAN ID Áßº¹ °ËÃâÇÏ¿© ¸¶½ºÅÍ·Î Àü¼Û
-¸¶½ºÅÍ¿¡¼­ ½½·¹ÀÌºê CAN ¼ö½Å ¾È µÇ¸é Åë½Å ÆúÆ® Ç¥½Ã
-½½·¹ÀÌºê¿¡¼­ ¸¶½ºÅÍÀÇ 485¼ö½ÅÀ» ¸ø ¹ŞÀ¸¸é CANÀ¸·Î ÆúÆ® Àü¼Û
-¸®¼Â ÈÄ ÃÊ±â FAN ¾È µ¹¾Æ°¡´Â ¿øÀÎ °ËÅä
-ÅÍ¹Ì³Î¿¡ Àü·ù°ª ¼Ò¼öÁ¡ Ç¥½Ã
-Åë½Å ÆúÆ® ¹ß»ı½Ã Ã³¸® ¹× °æ°í
-if(SciaRegs.SCIRXST.bit.PE) // error Ã³¸® ÇÒ °Í
-¿¡·¯ ¹ß»ı ½Ã Ä«¿îÆ®ÇØ¼­ ÀúÀåÇØ º¼ °Í
-flash ¿¡¼­ ½ÇÇà°ú ram¿¡¼­ ½ÇÇà½Ã°£ °üÂû
+/* í•´ì•¼ í• ì¼
+FAN ì˜¨ë„ì— ë”°ë¥¸ PWM Duty ê°€ë³€ ì•ˆ ë¨. 0.15 fix
+ìŠ¬ë ˆì´ë¸Œ ë³´ë“œ CAN ID ì¤‘ë³µ ê²€ì¶œí•˜ì—¬ ë§ˆìŠ¤í„°ë¡œ ì „ì†¡
+ë§ˆìŠ¤í„°ì—ì„œ ìŠ¬ë ˆì´ë¸Œ CAN ìˆ˜ì‹  ì•ˆ ë˜ë©´ í†µì‹  í´íŠ¸ í‘œì‹œ
+ìŠ¬ë ˆì´ë¸Œì—ì„œ ë§ˆìŠ¤í„°ì˜ 485ìˆ˜ì‹ ì„ ëª» ë°›ìœ¼ë©´ CANìœ¼ë¡œ í´íŠ¸ ì „ì†¡
+ë¦¬ì…‹ í›„ ì´ˆê¸° FAN ì•ˆ ëŒì•„ê°€ëŠ” ì›ì¸ ê²€í† 
+í„°ë¯¸ë„ì— ì „ë¥˜ê°’ ì†Œìˆ˜ì  í‘œì‹œ
+í†µì‹  í´íŠ¸ ë°œìƒì‹œ ì²˜ë¦¬ ë° ê²½ê³ 
+if(SciaRegs.SCIRXST.bit.PE) // error ì²˜ë¦¬ í•  ê²ƒ
+ì—ëŸ¬ ë°œìƒ ì‹œ ì¹´ìš´íŠ¸í•´ì„œ ì €ì¥í•´ ë³¼ ê²ƒ
+flash ì—ì„œ ì‹¤í–‰ê³¼ ramì—ì„œ ì‹¤í–‰ì‹œê°„ ê´€ì°°
 
-Run ½ÅÈ£¸¦ ½½·¹ÀÌºê·Î Àü¼Û½Ã 0,1ÀÌ ¾Æ´Ñ Æ¯Á¤°ªÀ¸·Î Run = 0xA0, !Run = x00;, ½½·¹ÀÌºê¿¡¼­µµ ÇÁ·Î±×·¥ ÄÚµå ¼öÁ¤ÇÒ °Í
+Run ì‹ í˜¸ë¥¼ ìŠ¬ë ˆì´ë¸Œë¡œ ì „ì†¡ì‹œ 0,1ì´ ì•„ë‹Œ íŠ¹ì •ê°’ìœ¼ë¡œ Run = 0xA0, !Run = x00;, ìŠ¬ë ˆì´ë¸Œì—ì„œë„ í”„ë¡œê·¸ë¨ ì½”ë“œ ìˆ˜ì •í•  ê²ƒ
 
 */
 
@@ -98,10 +98,10 @@ Run ½ÅÈ£¸¦ ½½·¹ÀÌºê·Î Àü¼Û½Ã 0,1ÀÌ ¾Æ´Ñ Æ¯Á¤°ªÀ¸·Î Run = 0xA0, !Run = x00;, ½½·¹
 #define _MAIN_C_
 
 #define I_MAX (80)
-#define MODULE_NUM (1)   // ¸ğµâ °³¼ö
+#define MODULE_NUM (1)   // ëª¨ë“ˆ ê°œìˆ˜
 
 #define MON_MAXCNT        (10000.)                        // Monitoring Count for Summing data.
-#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // Æò±Õ ±¸ÇÒ ¶§ ³ª´°»ùÀ» °ö»ùÀ¸·Î ÇÏ±â À§ÇØ¼­
+#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // í‰ê·  êµ¬í•  ë•Œ ë‚˜ëˆ—ìƒ˜ì„ ê³±ìƒ˜ìœ¼ë¡œ í•˜ê¸° ìœ„í•´ì„œ
 
 #ifndef _CAN_BUS_
 #define _CAN_BUS_      ( 1 )
@@ -211,13 +211,13 @@ Uint16 tx_count = 0, count_num = 100;
 #define OVER_VOLTAGE (1100)
 
 
-//±âÁØ Àü¾Ğ ÀüÃ¼ ¹üÀ§ Ãâ·Â Àü¾ĞÀº ±âÁØ Àü¾ĞÀÇ µÎ ¹èÀÔ´Ï´Ù.
+//ê¸°ì¤€ ì „ì•• ì „ì²´ ë²”ìœ„ ì¶œë ¥ ì „ì••ì€ ê¸°ì¤€ ì „ì••ì˜ ë‘ ë°°ì…ë‹ˆë‹¤.
 //SpiaRegs.SPITXBUF =
-#define FAST_REF1 0xD001 //³»ºÎ 1.024V
+#define FAST_REF1 0xD001 //ë‚´ë¶€ 1.024V
 #define SLOW_REF1 0x9001
-#define FAST_REF2 0xD002 //³»ºÎ 2.048V
+#define FAST_REF2 0xD002 //ë‚´ë¶€ 2.048V
 #define SLOW_REF2 0x9002
-#define FAST_REF_E 0xD000 //¿ÜºÎ
+#define FAST_REF_E 0xD000 //ì™¸ë¶€
 #define SLOW_REF_E 0x9000
 
 Uint16 fifo_err_cnt = 0;
@@ -229,10 +229,10 @@ Uint16 ErrorCount= 0;
 Uint16 _1second_flag = 0, force_reset_test = 0;
 
 
-// Àü¼Û Á¦¾î ¹®ÀÚ
-#define STX (0x02) // Start of Text, º»¹®ÀÇ °³½Ã ¹× Á¤º¸ ¸Ş¼¼Áö Çì´õÀÇ Á¾·á¸¦ Ç¥½Ã
-#define ETX (0x03) // End of Text, º»¹®ÀÇ Á¾·á¸¦ Ç¥½ÃÇÑ´Ù
-#define DLE (0x10) // Data link escape, µÚµû¸£´Â ¿¬¼ÓµÈ ±ÛÀÚµéÀÇ ÀÇ¹Ì¸¦ ¹Ù²Ù±â À§ÇØ »ç¿ë, ÁÖ·Î º¸Á¶Àû Àü¼ÛÁ¦¾î±â´ÉÀ» Á¦°ø
+// ì „ì†¡ ì œì–´ ë¬¸ì
+#define STX (0x02) // Start of Text, ë³¸ë¬¸ì˜ ê°œì‹œ ë° ì •ë³´ ë©”ì„¸ì§€ í—¤ë”ì˜ ì¢…ë£Œë¥¼ í‘œì‹œ
+#define ETX (0x03) // End of Text, ë³¸ë¬¸ì˜ ì¢…ë£Œë¥¼ í‘œì‹œí•œë‹¤
+#define DLE (0x10) // Data link escape, ë’¤ë”°ë¥´ëŠ” ì—°ì†ëœ ê¸€ìë“¤ì˜ ì˜ë¯¸ë¥¼ ë°”ê¾¸ê¸° ìœ„í•´ ì‚¬ìš©, ì£¼ë¡œ ë³´ì¡°ì  ì „ì†¡ì œì–´ê¸°ëŠ¥ì„ ì œê³µ
 
 
 Uint16 gSciTxBuf[4] = {STX,0,0,ETX};
@@ -245,13 +245,13 @@ Uint16 can_rx_fault_cnt[11], detect_module_num = 1;
 
 Uint16 size_check = 0;
 
-// SD2 //GPIO3   SPISOMIA(±âÁ¸°ú µ¿ÀÏ, ³×Æ® ÀÌ¸§¸¸ º¯°æ)
-// SCK2 //GPIO18 SPICLKA (±âÁ¸°ú µ¿ÀÏ,  ³×Æ® ÀÌ¸§¸¸ º¯°æ) DAC1-CLK
-// CS_100K // GPIO44 (chip select) ±âÁ¸ ±×´ë·Î »ç¿ë
+// SD2 //GPIO3   SPISOMIA(ê¸°ì¡´ê³¼ ë™ì¼, ë„¤íŠ¸ ì´ë¦„ë§Œ ë³€ê²½)
+// SCK2 //GPIO18 SPICLKA (ê¸°ì¡´ê³¼ ë™ì¼,  ë„¤íŠ¸ ì´ë¦„ë§Œ ë³€ê²½) DAC1-CLK
+// CS_100K // GPIO44 (chip select) ê¸°ì¡´ ê·¸ëŒ€ë¡œ ì‚¬ìš©
 
-// Gpio_select() ¼öÁ¤ ºÎºĞ
+// Gpio_select() ìˆ˜ì • ë¶€ë¶„
 
-// ADC-CNV (GPIO7)Àº »èÁ¦
+// ADC-CNV (GPIO7)ì€ ì‚­ì œ
 float adc_ramp = 1.;
 Uint16 adc_offset = 2500;
 Uint32 test_val = 0;
@@ -285,7 +285,7 @@ void main(void)
 // PLL, WatchDog, enable Peripheral Clocks (PLL 18/2*10M (INOSC1)
 // This example function is found in the F2806x_SysCtrl.c file.
     InitSysCtrl(); // 90Mhz/1  sci_clk/16 = 5.625Mbps(Max),  90Mhz/4 = 22.5Mhz, sci_clk/16 = 1.40625Mbps(Max)
-//Control Suite »õ·Î ¼³Ä¡½Ã¿¡´Â SysCtrlRegs.LOSPCP.all = 0x0000; À¸·Î º¯°æÇØÁà¾ß ÇÑ´Ù. 20247.10.10
+//Control Suite ìƒˆë¡œ ì„¤ì¹˜ì‹œì—ëŠ” SysCtrlRegs.LOSPCP.all = 0x0000; ìœ¼ë¡œ ë³€ê²½í•´ì¤˜ì•¼ í•œë‹¤. 20247.10.10
 
     ///////////////////////////////////////////////////////////////////////////////////////////
     // for FLASH operation
@@ -314,7 +314,7 @@ void main(void)
 
     DigitalIn.all = 0;
 
-    Digital_Input(); // boardÀÇ id¸¦ ÀĞ¾î¼­ ÃÊ±â can id¸¦ ¼³Á¤ÇÏ±â À§ÇÔ
+    Digital_Input(); // boardì˜ idë¥¼ ì½ì–´ì„œ ì´ˆê¸° can idë¥¼ ì„¤ì •í•˜ê¸° ìœ„í•¨
 
 // For this case just init GPIO pins for ePWM1 ~ ePWM8
 // These functions are in the F2806x_EPwm.c file
@@ -378,8 +378,8 @@ void main(void)
 // This function is found in F2806x_PieVect.c.
     InitPieVectTable();
 
-    InitECanaGpio();         // GPIO¸¦ CAN Åë½Å ¿ëÀ¸·Î ¼³Á¤
-    InitECana();          // CAN ÃÊ±âÈ­ : CAN2.0A ¸ğµå, 1Mbps ¼Óµµ
+    InitECanaGpio();         // GPIOë¥¼ CAN í†µì‹  ìš©ìœ¼ë¡œ ì„¤ì •
+    InitECana();          // CAN ì´ˆê¸°í™” : CAN2.0A ëª¨ë“œ, 1Mbps ì†ë„
     eCana_config();
 
     InitAdc();  // For this example, init the ADC
@@ -526,7 +526,7 @@ void main(void)
     for (;;)
     {
         mainLoopCount++; //free run counter, for debugging
-        if(ScibRegs.SCIFFRX.bit.RXFFOVF || force_reset_test) // ¸®¼Â ½Ã usRegHoldingBuf´Â ÃÊ±âÈ­ µÇÁö ¾Ê¾Æ¾ßÇÑ´Ù.
+        if(ScibRegs.SCIFFRX.bit.RXFFOVF || force_reset_test) // ë¦¬ì…‹ ì‹œ usRegHoldingBufëŠ” ì´ˆê¸°í™” ë˜ì§€ ì•Šì•„ì•¼í•œë‹¤.
         {
             force_reset_test = 0;
             fifo_err_cnt++;
@@ -535,7 +535,7 @@ void main(void)
             ScibRegs.SCIFFRX.bit.RXFIFORESET = 1;
         }
 
-        (void) eMBPoll(); // 2024.06.04 ¹İµå½Ã ¸ŞÀÎ ¹«ÇÑ ·çÇÁ¿¡¼­ È£ÃâÇÒ °Í.
+        (void) eMBPoll(); // 2024.06.04 ë°˜ë“œì‹œ ë©”ì¸ ë¬´í•œ ë£¨í”„ì—ì„œ í˜¸ì¶œí•  ê²ƒ.
 
         if(can_tx_flag == 1)
         {
@@ -543,7 +543,7 @@ void main(void)
             if(Run == 1) ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0; // 2025.02.17
             else         ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;
 
-            ECanaRegs.CANTRS.all = 0x00000001;   // Transmit Request Set // ¾à 1ÃÊ¿¡ 6000 ÇÁ·¹ÀÓ Àü¼Û)
+            ECanaRegs.CANTRS.all = 0x00000001;   // Transmit Request Set // ì•½ 1ì´ˆì— 6000 í”„ë ˆì„ ì „ì†¡)
 
             if (ECanaRegs.CANRMP.bit.RMP1 != 0) {Io_sense1.ulValue  = ECanaMboxes.MBOX1.MDL.all; ECanaRegs.CANRMP.bit.RMP1 = 1; can_rx_fault_cnt[1] = 0;}
             else                                {                                                                               if(can_rx_fault_cnt[1]++ >= 10000) {Io_sense1.ulValue = 0; can_rx_fault_cnt[1] = 10000;}}
@@ -571,8 +571,8 @@ void main(void)
             }
         }
 
-        // slave¿¡¼­ Áßº¹µÈ can id¸¦ ¼³Á¤ÇÏ¿© ¸¶½ºÅÍ³ª ½½·¹ÀÌºêÀÇ can ·¹Áö½ºÅÍ¿¡ ¾î¶² ¿¡·¯°¡ ¹ß»ıÇÏ´ÂÁö °üÂûÇÑ´Ù.
-        // ¶Ç´Â peak canÀ» ¿¬°áÇÏ¿© busoff µî ¿¡·¯¸¦ °üÂûÇÏ¿© Ã³¸® ¹æ¹ıÀ» Ã£´Â´Ù.
+        // slaveì—ì„œ ì¤‘ë³µëœ can idë¥¼ ì„¤ì •í•˜ì—¬ ë§ˆìŠ¤í„°ë‚˜ ìŠ¬ë ˆì´ë¸Œì˜ can ë ˆì§€ìŠ¤í„°ì— ì–´ë–¤ ì—ëŸ¬ê°€ ë°œìƒí•˜ëŠ”ì§€ ê´€ì°°í•œë‹¤.
+        // ë˜ëŠ” peak canì„ ì—°ê²°í•˜ì—¬ busoff ë“± ì—ëŸ¬ë¥¼ ê´€ì°°í•˜ì—¬ ì²˜ë¦¬ ë°©ë²•ì„ ì°¾ëŠ”ë‹¤.
 
         if(_50us_flag )
         {
@@ -627,7 +627,7 @@ __interrupt void cpu_timer2_isr(void) //1 Second
 //    _1second_flag = 1;
 //    led3ON();
     cpu_timer2_cnt++;
-//    SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      /* SCI ¼Û½Å FIFO ÀÎÅÍ·´Æ® Enable */
+//    SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      /* SCI ì†¡ì‹  FIFO ì¸í„°ëŸ½íŠ¸ Enable */
 //    led3OFF();
 //    led3TOGGLE();
 }
@@ -657,16 +657,16 @@ __interrupt void epwm3_isr(void) // 100KHz
     Uint16 i; epwm3_isr_cnt++;
 //    led2ON();
 //    led3ON();
-    if(tx_count++ >= count_num) // 1khz(1ms) ¸¶´Ù
+    if(tx_count++ >= count_num) // 1khz(1ms) ë§ˆë‹¤
     {
         tx_count = 0;
-        can_tx_flag = 1; // main loop ¿¡¼­ Ã³¸®
+        can_tx_flag = 1; // main loop ì—ì„œ ì²˜ë¦¬
     }
 
     DAC1_DS(); // DAC1_CS Deactivate
     rx_adc_data = SpiaRegs.SPIRXBUF; // Read ADC data
 
-    ADC1_CS(); // ADC1_CS Activate w Falling Edge ÄÁ¹öÀü ½ÃÀÛ ÈÄ ÃÖ¼Ò 700ns ÈÄ¿¡ ÀĞ¾î¾ß ÇÔ.
+    ADC1_CS(); // ADC1_CS Activate w Falling Edge ì»¨ë²„ì „ ì‹œì‘ í›„ ìµœì†Œ 700ns í›„ì— ì½ì–´ì•¼ í•¨.
     DAC1_CS(); // DAC1_CS Activate w Falling Edge
 
     rx_adc_data_buf_sum += rx_adc_data;
@@ -677,8 +677,8 @@ __interrupt void epwm3_isr(void) // 100KHz
 /********************************
 // 20khz loop
  *
- * 20khz ¿¡ PI_L¸¦ ÇÏ°í, ´Ù½Ã 20khz ÈÄ¿¡ PI_H¸¦ ¼öÇàÇÑ´Ù.
- * ±×·¡¼­ PI_L°ú PI_HÀÇ ¿¬»ê(¼öÇà)½Ã°£À» °¢°¢ Ã¼Å©ÇØº»´Ù. µÎ°³°¡ ÇÕÃÄ¼­ 100Khz ÀÌ³»¿¡ °¡´ÉÇÑÁö.
+ * 20khz ì— PI_Lë¥¼ í•˜ê³ , ë‹¤ì‹œ 20khz í›„ì— PI_Hë¥¼ ìˆ˜í–‰í•œë‹¤.
+ * ê·¸ë˜ì„œ PI_Lê³¼ PI_Hì˜ ì—°ì‚°(ìˆ˜í–‰)ì‹œê°„ì„ ê°ê° ì²´í¬í•´ë³¸ë‹¤. ë‘ê°œê°€ í•©ì³ì„œ 100Khz ì´ë‚´ì— ê°€ëŠ¥í•œì§€.
  * 3.5uS + 1.666uS = 5.1666us
 *********************************/
     switch(_100khz_count)
@@ -688,34 +688,34 @@ __interrupt void epwm3_isr(void) // 100KHz
         rx_adc_data_buf_sum = 0;
         fADC_voltage = v_ref * (float) rx_adc_data_buf_ave * (float)(0.0000152) - 0.1945;// (float)((1ul << 16))
         Vo_sen = fADC_voltage * 250 * 1.04047;// 1.04047 = 1/0.9611;
-        Vo = Vo_sen; // Vo º¯¼ö´Â Á¦¾î±â¿¡ »ç¿ë
+        Vo = Vo_sen; // Vo ë³€ìˆ˜ëŠ” ì œì–´ê¸°ì— ì‚¬ìš©
 
-        PI_Controller_high();  // PI Á¦¾î±â,  battery charger/discharger mode
+        PI_Controller_high();  // PI ì œì–´ê¸°,  battery charger/discharger mode
 
-//        for test code, ±¸ÇüÆÄ
+//        for test code, êµ¬í˜•íŒŒ
 //        if  (IcomTemp >= 2000) slop = -100;
 //        if  (IcomTemp <= 1000) slop = +100;
 //        IcomTemp = IcomTemp + slop;
 
-//        for test code, »ï°¢ÆÄ
+//        for test code, ì‚¼ê°íŒŒ
 //        if     (slop <  90) IcomTemp = 0;
 //        else if(slop < 100) IcomTemp = 4000;
 //        else                slop = 0;
 //        slop++;
 
-//        IcomTemp = (((I_com_set - 0.5) * 0.5 * 50)* 0.5 + 2000) * 1.0005; // ¹æÀü ¸ğµå(Icom_Pos 80A) DA Ãâ·Â 4.000V. È¸»ı ¸ğµå(Icom_Neg -80A) DA Ãâ·Â 0.000V
+//        IcomTemp = (((I_com_set - 0.5) * 0.5 * 50)* 0.5 + 2000) * 1.0005; // ë°©ì „ ëª¨ë“œ(Icom_Pos 80A) DA ì¶œë ¥ 4.000V. íšŒìƒ ëª¨ë“œ(Icom_Neg -80A) DA ì¶œë ¥ 0.000V
 //        SpiaRegs.SPITXBUF = 0xC000 | (test_out_A & 0xfff); // test code
-//        SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      // SCI ¼Û½Å FIFO ÀÎÅÍ·´Æ® Enable
+//        SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      // SCI ì†¡ì‹  FIFO ì¸í„°ëŸ½íŠ¸ Enable
          _100khz_count++;
         break;
 
     case 1:
-        PI_Controller_low();  // PI Á¦¾î±â,  battery charger/discharger mode
+        PI_Controller_low();  // PI ì œì–´ê¸°,  battery charger/discharger mode
         _100khz_count++;
         break;
 
-    case 2: // ¿Âµµ, 20khz ¸¶´Ù
-        //               if(GpioDataRegs.GPBDAT.bit.GPIO39) // DAB_ok ÀÏ¶§¸¸ buck_on µÇ¾î¾ß ÇÑ´Ù.
+    case 2: // ì˜¨ë„, 20khz ë§ˆë‹¤
+        //               if(GpioDataRegs.GPBDAT.bit.GPIO39) // DAB_ok ì¼ë•Œë§Œ buck_on ë˜ì–´ì•¼ í•œë‹¤.
         if      (I_com >  I_ss) I_com_1 = I_ss;
         else if (I_com < -I_ss) I_com_1 = -I_ss;
         else                    I_com_1 = I_com;
@@ -767,19 +767,19 @@ __interrupt void epwm3_isr(void) // 100KHz
 //     temp = (((I_com_set - 0.5f) * 0.5f * 50)* 0.5f + 2000) * 1.0005f;  // 20khz
        IcomTemp = (I_com_set * 50 * 0.5f + 2000) * 1.0005f;  // 20khz
 
-       if (IcomTemp > 4095) IcomTemp = 4095;    // DA Ãâ·Â »óÇÑ Á¦ÇÑ
-       spi_tx_temp = IcomTemp;     //20khz ¸¶´Ù ¾÷µ¥ÀÌÆ®
+       if (IcomTemp > 4095) IcomTemp = 4095;    // DA ì¶œë ¥ ìƒí•œ ì œí•œ
+       spi_tx_temp = IcomTemp;     //20khz ë§ˆë‹¤ ì—…ë°ì´íŠ¸
 
        gSciTxBuf[1] = (UCHAR)(IcomTemp & 0x00FF);;
        gSciTxBuf[2] = (UCHAR)((IcomTemp >> 8) & 0xFF);
 
        for (i = 0; i < 4; i++)
        {
-           SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF;  // ¸ğµç ½½·¹ÀÌºê º¸µå·Î Àü·ù Áö·É Àü¼Û
+           SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF;  // ëª¨ë“  ìŠ¬ë ˆì´ë¸Œ ë³´ë“œë¡œ ì „ë¥˜ ì§€ë ¹ ì „ì†¡
        }
-        // fan_pwmÀ» off ÇÏ°í DAB_ok´Â ¾à°£ÀÇ Áö¿¬ÈÄ¿¡ offµÈ´Ù.
-    //softstart ÇÔ¼ö·Î
-       if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // Æò±ÕÇÑ °ªÀ» 20khz ¸¶´Ù Ã¼Å©. fault Ç¥½Ã ÇÊ¿ä
+        // fan_pwmì„ off í•˜ê³  DAB_okëŠ” ì•½ê°„ì˜ ì§€ì—°í›„ì— offëœë‹¤.
+    //softstart í•¨ìˆ˜ë¡œ
+       if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // í‰ê· í•œ ê°’ì„ 20khz ë§ˆë‹¤ ì²´í¬. fault í‘œì‹œ í•„ìš”
 
        if (hw_fault == 0 && over_voltage_flag == 0 && filtered_switch_input == 1) Run = 1;
 //       if ( !hw_fault && !over_voltage_flag && filtered_switch_input) Run = 1;
@@ -787,13 +787,13 @@ __interrupt void epwm3_isr(void) // 100KHz
 
        else Run = 0;
 
-      if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // Æò±ÕÇÑ °ªÀ» 20khz ¸¶´Ù Ã¼Å©. fault Ç¥½Ã ÇÊ¿ä
+      if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // í‰ê· í•œ ê°’ì„ 20khz ë§ˆë‹¤ ì²´í¬. fault í‘œì‹œ í•„ìš”
       else if (filtered_switch_input == 0 ) over_voltage_flag = 0;
 
 
 //       if (dab_ok)
 //       {
-//           if (filtered_switch_input) // ¿ÜºÎ ON/OFF ½ºÀ§Ä¡
+//           if (filtered_switch_input) // ì™¸ë¶€ ON/OFF ìŠ¤ìœ„ì¹˜
 //           {
 //               if(over_voltage_flag) Run = 0; // fault
 //               else
@@ -860,9 +860,9 @@ if ( _100khz_count > 4 ) _100khz_count = 0;
          if      (GPIO_in == 1 && GPIO_in_1 == 1) hw_fault = 1;
          else if (filtered_switch_input     == 0) hw_fault = 0;
 
-    //ÁõÆø °ü·Ã ½ºÄÉÀÏ ÀúÇ× ºÎºĞÀº 0.1% ±ŞÀ» »ç¿ëÇØ¾ß ÇÑ´Ù.
-    SpiaRegs.SPITXBUF = 0xC000 | (spi_tx_temp & 0xfff); // DAC1 A write, fast 100khz ¸¶´Ù
-//    SpiaRegs.SPITXBUF = 0xC000 | (test_dac & 0xfff); // DAC1 A write, fast 100khz ¸¶´Ù
+    //ì¦í­ ê´€ë ¨ ìŠ¤ì¼€ì¼ ì €í•­ ë¶€ë¶„ì€ 0.1% ê¸‰ì„ ì‚¬ìš©í•´ì•¼ í•œë‹¤.
+    SpiaRegs.SPITXBUF = 0xC000 | (spi_tx_temp & 0xfff); // DAC1 A write, fast 100khz ë§ˆë‹¤
+//    SpiaRegs.SPITXBUF = 0xC000 | (test_dac & 0xfff); // DAC1 A write, fast 100khz ë§ˆë‹¤
 
 //    Vo_sen = (float32) (Vo_ad - 162) * 1200 / 4095; // adc 3v -> 4095, adc 3v : 1200
 
@@ -883,7 +883,7 @@ __interrupt void adc_isr(void)
                                 // Dog runs with the highest rate of OSC/512/2^8 = 686 Hz
     EDIS;
 // ADC conversions
-// SOC0 ½ÃÀÛ
+// SOC0 ì‹œì‘
     AdcRegs.ADCSOCFRC1.all = 0x07; // SOC0, SOC1, SOC2
 
     Temp_ad = AdcResult.ADCRESULT0;
@@ -899,12 +899,12 @@ __interrupt void adc_isr(void)
 
 void modbus_parse(void)
 {
-    Io_sen_total.fValue = ((Io_avg + Io_sense1.fValue + Io_sense2.fValue + Io_sense3.fValue + Io_sense4.fValue + Io_sense5.fValue + Io_sense6.fValue + Io_sense7.fValue + Io_sense8.fValue + Io_sense9.fValue));// Ãâ·Â Àü·ù
+    Io_sen_total.fValue = ((Io_avg + Io_sense1.fValue + Io_sense2.fValue + Io_sense3.fValue + Io_sense4.fValue + Io_sense5.fValue + Io_sense6.fValue + Io_sense7.fValue + Io_sense8.fValue + Io_sense9.fValue));// ì¶œë ¥ ì „ë¥˜
 
     usRegInputBuf[4] = (Uint16) (Io_sen_total.ulValue);
     usRegInputBuf[5] = (Uint16) (Io_sen_total.ulValue >> 16);
 
-//    usRegInputBuf[11] =  (Uint16)Vo_sen.ulValue;// Ãâ·Â Àü¾Ğ
+//    usRegInputBuf[11] =  (Uint16)Vo_sen.ulValue;// ì¶œë ¥ ì „ì••
 
     usRegInputBuf[10] = (Uint16) (Vo_sen_avg.ulValue);
     usRegInputBuf[11] = (Uint16) (Vo_sen_avg.ulValue >> 16);
@@ -915,7 +915,7 @@ void modbus_parse(void)
    usRegHoldingBuf[2] = 64; // force value
    eChargeMode = (eCharge_DisCharge_Mode)usRegHoldingBuf[2];
 
-   switch(eChargeMode){                // Àü·ù´Â ÇöÀç UI°¡ -Áö·ÉÀ» ¹ŞÀ» ¼ö ¾øÀ¸¹Ç·Î ÃÖ´ë 160A¸¦ ¹Ş¾Æ¼­ -80A ÇØ¼­ »ç¿ë(ÀÓ½Ã·Î)
+   switch(eChargeMode){                // ì „ë¥˜ëŠ” í˜„ì¬ UIê°€ -ì§€ë ¹ì„ ë°›ì„ ìˆ˜ ì—†ìœ¼ë¯€ë¡œ ìµœëŒ€ 160Aë¥¼ ë°›ì•„ì„œ -80A í•´ì„œ ì‚¬ìš©(ì„ì‹œë¡œ)
    case ElectronicLoad_CV_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 2
    case ElectronicLoad_CC_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 4
    case ElectronicLoad_CR_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]);
@@ -990,7 +990,7 @@ __interrupt void scia_txFifo_isr(void)
     return ;
 }
 
-void Digital_Input(void) // ±Û¸®Ä¡ Á¦°Å ÇÁ·Î±×·¥ ÇÒ °Í
+void Digital_Input(void) // ê¸€ë¦¬ì¹˜ ì œê±° í”„ë¡œê·¸ë¨ í•  ê²ƒ
 {
 //    DigitalIn.all = 0;
     DigitalIn.bit.Bit0 = GpioDataRegs.GPADAT.bit.GPIO11;   // GPIO for DIP Switch_1 net_name GPIO5
@@ -1001,7 +1001,7 @@ void Digital_Input(void) // ±Û¸®Ä¡ Á¦°Å ÇÁ·Î±×·¥ ÇÒ °Í
     DigitalIn_old_old.all = DigitalIn_old.all;
     DigitalIn_old.all = DigitalIn.all;
 
-    //±Û¸®Ä¡ ÆÇ´ÜÇØ¼­ ¼¼ÀÌºê
+    //ê¸€ë¦¬ì¹˜ íŒë‹¨í•´ì„œ ì„¸ì´ë¸Œ
     if(DigitalIn_old_old.all == DigitalIn_old.all == DigitalIn.all)
     Board_ID = DigitalIn.all;
 
@@ -1021,7 +1021,7 @@ void Calculating_current_average_and_monitoring_average(void)
 
     if (Current_Average++ == MON_MAXCNT) //  FOR MONITORING
     {
-      Io_sen.fValue = Io_sen_sum * MON_MAXCNT_REV; //200¹ø Æò±Õ;
+      Io_sen.fValue = Io_sen_sum * MON_MAXCNT_REV; //200ë²ˆ í‰ê· ;
       Io_sen_sum = 0;
       Current_Average = 0;
     }
@@ -1046,10 +1046,10 @@ void FAN_pwm_service(void)
     //fan pwm service
 //            unsigned int fan_pwm_duty1 = 0;
 
-            fan_pwm_duty =  0.8 * (In_Temp - 36)/(52.4f - 36) + 0.2; // In_Temp°¡ 36µµ¾¾ ÀÏ¶§ 20%, 52.4µµ¾¾ ÀÏ¶§ 100%
+            fan_pwm_duty =  0.8 * (In_Temp - 36)/(52.4f - 36) + 0.2; // In_Tempê°€ 36ë„ì”¨ ì¼ë•Œ 20%, 52.4ë„ì”¨ ì¼ë•Œ 100%
 
-            if     (fan_pwm_duty < 0.15) fan_pwm_duty = 0.15; //ÃÖ¼Ò 15%·Î Á¦ÇÑ
-            else if(fan_pwm_duty > 0.9 ) fan_pwm_duty = 0.9; //ÃÖ´ë 90%·Î Á¦ÇÑ
+            if     (fan_pwm_duty < 0.15) fan_pwm_duty = 0.15; //ìµœì†Œ 15%ë¡œ ì œí•œ
+            else if(fan_pwm_duty > 0.9 ) fan_pwm_duty = 0.9; //ìµœëŒ€ 90%ë¡œ ì œí•œ
 
             EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k; //fan, PWM_PERIOD_10k
 

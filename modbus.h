@@ -39,7 +39,7 @@
 //#define SCIA_FREQ    (115200)        //BAUD               38400 57600 115200 230400 460800 921600 1406250
 //#define SCIA_FREQ    (921600)
 //#define SCIA_FREQ    (5625000) // 5.625Mbps
-//#define SCIA_PRD      (Uint16)((LSPCLK_FREQ/(SCIA_FREQ*8))-1)   // SCIA_PRD BAUD∞° 0¿Ã∏È LSPCLK_FREQ/ 16 ¿∏∑Œ ¿˚øÎµ .
+//#define SCIA_PRD      (Uint16)((LSPCLK_FREQ/(SCIA_FREQ*8))-1)   // SCIA_PRD BAUDÍ∞Ä 0Ïù¥Î©¥ LSPCLK_FREQ/ 16 ÏúºÎ°ú Ï†ÅÏö©Îê®.
 
 #define SCIA_PRD (0) //5625000
 
