@@ -3,6 +3,54 @@
 
 #include "F2806x_Cla_typedefs.h"
 
+// Endian 변환 매크로
+#define SWAP16(data, offset) ((((Uint16)(data)[(offset) + 1]) << 8) | \
+                              ((Uint16)(data)[(offset)]))
+
+#define SWAP32(data, offset) ((((Uint32)(data)[(offset) + 3]) << 24) | \
+                              (((Uint32)(data)[(offset) + 2]) << 16) | \
+                              (((Uint32)(data)[(offset) + 1]) << 8) | \
+                              ((Uint32)(data)[(offset)]))
+
+// Uint16 값을 바이트 배열에 스왑하여 저장하는 매크로
+#define CAN_PUT_UINT16(data, offset, value) \
+    do { \
+        (data)[(offset)] = (Uint8)(value); \
+        (data)[(offset) + 1] = (Uint8)((value) >> 8); \
+    } while(0)
+
+// Uint32 값을 바이트 배열에 스왑하여 저장하는 매크로
+#define CAN_PUT_UINT32(data, offset, value) \
+    do { \
+        (data)[(offset)] = (Uint8)(value); \
+        (data)[(offset) + 1] = (Uint8)(((value) >> 8)); \
+        (data)[(offset) + 2] = (Uint8)(((value) >> 16)); \
+        (data)[(offset) + 3] = (Uint8)(((value) >> 24)); \
+    } while(0)
+
+// float32 값을 바이트 배열에 스왑하여 저장하는 매크로
+#define CAN_PUT_FLOAT32(data, offset, value) \
+    do { \
+        union { float32 f; Uint32 u; } temp; \
+        temp.f = (value); \
+        CAN_PUT_UINT32((data), (offset), temp.u); \
+    } while(0)
+
+// float32 타입의 Endian 변환 매크로 (GCC 확장 문법)
+#define SWAP_FLOAT(data, offset) \
+    ({ \
+        Uint32 _temp = SWAP32((data), (offset)); \
+        *((float32*)&_temp); \
+    })
+
+// float32 타입의 Endian 변환 매크로 (표준 C 호환 접근법)
+static Uint32 _swap_float_temp;
+#define SWAP_FLOAT_C(data, offset) \
+    (_swap_float_temp = SWAP32((data), (offset)), *((float32*)&_swap_float_temp))
+
+// float32 타입의 Endian 변환 함수
+float32 SwapFloat(Uint8* data, Uint16 offset);
+
 // 모듈 상태 정의
 typedef enum {
     STATE_IDLE = 0,    // 대기 상태
@@ -155,36 +203,19 @@ typedef struct {
     Uint8 data[8];  // 데이터
 } CAN_MESSAGE;
 
-// CAN 메시지 큐 설정
-#define CAN_RX_QUEUE_SIZE 32  // 수신 큐 크기
-
-// CAN 메시지 큐 구조체
-typedef struct {
-    CAN_MESSAGE messages[CAN_RX_QUEUE_SIZE];  // 메시지 배열
-    Uint16 head;                              // 큐 헤드 인덱스
-    Uint16 tail;                              // 큐 테일 인덱스
-    Uint16 count;                             // 현재 메시지 개수
-} CAN_QUEUE;
-
-// 전역 변수 선언
-extern CAN_QUEUE can_rx_queue;
-
-// 엔디안 변환 함수 선언 (다른 파일에서도 사용 가능)
-Uint16 Swap16(Uint16 value);
-Uint32 Swap32(Uint32 value);
-float32 SwapFloat(float32 value);
-
 // 초기화 및 처리 함수
 void InitProtocol(void);
-void SaveCommand(Uint16 command_id, Uint8* data);
-void ProcessCommand(Uint8* data);
 
 // 메시지 전송 함수
 Uint16 SendAck(Uint16 command_id);
 Uint16 SendCommandAck(Uint8* data);
 void SendEndReport(void);
 void SendReport(Uint16 index);
-Uint16 SendCANMessage(Uint32 id, const Uint8* data);
+void SendCANMessage(Uint32 id, Uint8 *message);
+
+// 메일박스 기반 함수 선언 추가
+void SaveCommand(Uint16 mbox_num);              // 메일박스 데이터 저장 함수
+void ProcessCommand(Uint16 mbox_num);           // 메일박스 명령 처리 함수
 
 // 상태 전환 함수
 void TransitionToRunning(void);
@@ -197,14 +228,8 @@ void UpdateOperationTime(void);
 void UpdateCVTime(void);
 void UpdateCapacityValues(void);
 
-// CAN 메시지 큐 관련 함수
-void InitCanQueue(void);                           // CAN 큐 초기화
-Uint16 CanQueuePush(const CAN_MESSAGE* msg);       // CAN 메시지를 큐에 추가
-Uint16 CanQueuePop(CAN_MESSAGE* msg);              // CAN 메시지를 큐에서 가져옴
-void ProcessCanMessage(const CAN_MESSAGE* msg);    // CAN 메시지 처리
-
 // CAN 인터럽트 관련 함수
-interrupt void Protocol_ECAN0INTA_ISR(void);                // CAN 인터럽트 서비스 루틴
+
 void CheckHeartBitTimeout(void);                   // Heart Bit 타임아웃 체크 함수
 
 // Heart Bit 관련 전역 변수 선언
@@ -212,5 +237,17 @@ extern Uint16 can_360_msg_count;       // Heart Bit 메시지 수신 횟수
 extern Uint16 can_360_last_count;      // 마지막으로 수신한 Heart Bit 카운트 값
 extern Uint16 can_360_timeout_counter; // Heart Bit 타임아웃 카운터
 extern Uint16 can_360_timeout_flag;    // Heart Bit 타임아웃 플래그
+
+extern Uint16 Buck_EN;
+extern Uint16 hw_fault;
+extern Uint16 Run;
+extern float32 Vo_sen;
+extern Uint16 hw_fault;
+extern Uint16 over_voltage_flag;
+
+// CAN 메시지 바이트 배열 조작 함수
+void CanPutUint16(Uint8* msg, Uint16 offset, Uint16 value);
+void CanPutUint32(Uint8* msg, Uint16 offset, Uint32 value);
+void CanPutFloat32(Uint8* msg, Uint16 offset, float32 value);
 
 #endif /* PROTOCOL_H_ */

@@ -1,4 +1,4 @@
- //###########################################################################
+//###########################################################################
 // 2025.02.26 final 정상 동작 확인
 
 /*
@@ -118,7 +118,7 @@ Run 신호를 슬레이브로 전송시 0,1이 아닌 특정값으로 Run = 0xA0
 
 #include "modbus.h"
 #include "math.h"
-
+#include "protocol.h"
 #include "Terminal.h"
 
 
@@ -129,6 +129,9 @@ void InitEPwm3Example(void);
 void spi_init(void);
 void eCana_config (void);
 
+void SaveCommand(Uint16 mbox_num);
+void ProcessCommand(Uint16 mbox_num);
+void SendParameters(void);  // 추가된 함수 선언
 
 void stra_xmit(UCHAR  *buff, Uint16 Length);
 
@@ -155,6 +158,7 @@ unsigned long ulCanTRS_Prev = 0;
 
 #pragma CODE_SECTION(stra_xmit, "ramfuncs");
 #pragma CODE_SECTION(epwm3_isr, "ramfuncs");
+#pragma CODE_SECTION(ecan0_isr, "ramfuncs");
 
 __interrupt void cpu_timer0_isr(void);
 __interrupt void cpu_timer2_isr(void);
@@ -164,6 +168,7 @@ __interrupt void epwm3_isr(void);
 __interrupt void spi_isr(void);
 //__interrupt void scia_rxFifo_isr(void);
 __interrupt void scia_txFifo_isr(void);
+__interrupt void ecan0_isr(void);
 
 
 #pragma CODE_SECTION(adc_isr, "ramfuncs");   //copy to Flash to Ram
@@ -201,7 +206,7 @@ Uint16 Buck_EN = 0;
 Uint16 board2_voltage;
 Uint16 board2_current;
 Uint16 tx_count = 0, count_num = 100;
-
+Uint8 test_data[8] = {0};
 
 
 
@@ -221,7 +226,6 @@ Uint16 tx_count = 0, count_num = 100;
 #define SLOW_REF_E 0x9000
 
 Uint16 fifo_err_cnt = 0;
-
 
 Uint16 LoopCount = 0;
 Uint16 ErrorCount= 0;
@@ -353,6 +357,7 @@ void main(void)
    InitSciaGpio(); // RS-232, PCB ref. CN4 , for Parameter Monitoring
    scia_fifo_init();      // Initialize the SCI FIFO
    scia_init();
+   InitProtocol();
 
    EALLOW;   // This is needed to write to EALLOW protected registers
    En485_ON( );   // GpioCtrlRegs.GPADIR.bit.GPIO30 = 1;
@@ -361,7 +366,7 @@ void main(void)
    Tx485_ON( ); // for master
 //   Rx485_ON( ); // for slave
 
-   msg = "Hello World\0";
+//   msg = "Hello World\0";
 //   scia_msg(msg);
 ////   msg = "\r\nDSP USART(SCI-B) port init...  \n\0";
 //   scib_msg(msg);
@@ -419,6 +424,8 @@ void main(void)
 
     PieVectTable.SPIRXINTA = &spi_isr;
 
+    PieVectTable.ECAN0INTA = &ecan0_isr; // CAN-A 인터럽트 핸들러 등록
+
     EDIS;
     // This is needed to disable write to EALLOW protected registers
 
@@ -457,6 +464,9 @@ void main(void)
     IER |= M_INT13;                     // Timer 1
 //  IER |= M_INT14;                     // Timer 2
 
+    // CAN 인터럽트 활성화
+    PieCtrlRegs.PIEIER9.bit.INTx5 = 1;     // PIE Group 9, INT5 : ECAN0INTA
+    PieCtrlRegs.PIEIER9.bit.INTx6 = 0;     // PIE Group 9, INT6 : ECAN1INTA
 
     EALLOW;
     SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 1;
@@ -1074,3 +1084,42 @@ __interrupt void cla1_task1_isr(void)
 //===========================================================================
 // No more.
 //===========================================================================
+
+__interrupt void ecan0_isr(void)
+{
+    Uint16 mbox30cnt = 0;
+    
+    // 테스트용으로 MBOX31만 처리
+    if (ECanaRegs.CANRMP.bit.RMP30)
+    {
+        mbox30cnt++;
+        test_data[0] = ECanaMboxes.MBOX30.MDL.byte.BYTE0;
+        test_data[1] = ECanaMboxes.MBOX30.MDL.byte.BYTE1;
+        test_data[2] = ECanaMboxes.MBOX30.MDL.byte.BYTE2;
+        test_data[3] = ECanaMboxes.MBOX30.MDL.byte.BYTE3;
+        test_data[4] = ECanaMboxes.MBOX30.MDH.byte.BYTE4;
+        test_data[5] = ECanaMboxes.MBOX30.MDH.byte.BYTE5;
+        test_data[6] = ECanaMboxes.MBOX30.MDH.byte.BYTE6;
+        test_data[7] = ECanaMboxes.MBOX30.MDH.byte.BYTE7;
+        
+        
+        // ID 확인 후 적절한 함수 호출 (하위 비트가 0x210인지 확인)
+        if (ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L == 0x210)
+        {
+            ProcessCommand(30);
+        }
+        else
+        {
+            SaveCommand(30);
+        }
+        
+        ECanaRegs.CANRMP.bit.RMP30 = 1;
+    }
+    
+    // 인터럽트 플래그 초기화
+    ECanaRegs.CANGIF0.all = 0xFFFFFFFF;
+    
+    // PIE 인터럽트 응답
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
+}
+

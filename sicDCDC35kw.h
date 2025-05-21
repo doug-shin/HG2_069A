@@ -12,6 +12,7 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 // the includes
 //*****************************************************************************
 
+#ifndef _MAIN_H_
 #define _MAIN_H_
 
 #include "sicDCDC35kw_setting.h" //for enum def
@@ -44,6 +45,8 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 #define FAULT_LED_ON()         (GpioDataRegs.GPASET.bit.GPIO5  = 1)
 #define FAULT_LED_OFF()        (GpioDataRegs.GPACLEAR.bit.GPIO5  = 1)
 #define FAULT_LED_TOGGLE()     (GpioDataRegs.GPATOGGLE.bit.GPIO5  = 1)
+
+extern Uint32 mbox30cnt;
 
 typedef union
 {
@@ -251,7 +254,7 @@ Uint16 V_high_limit, V_low_limit;
 Uint16 fan_speed = 0, temperature1 = 10, temperature2 = 20, temperature3 = 40, start_stop = 0;
 Uint16 fan_pwm_out_trip = 0, fan_pwm_out_trip_old = 0;
 
-char *msg;
+//char *msg;
 Uint16 SendChar = 65; //'A'
 float fADC_voltage, Vo_sen;
 Uint16 over_voltage_flag = 0;
@@ -291,7 +294,7 @@ extern eCharge_DisCharge_Mode eChargeMode;
 extern Uint16 Vout_Reference;
 extern int16  Iout_Reference;
 
-extern char *msg;
+//extern char *msg;
 extern Uint16 SendChar;
 
 extern float32 In_Temp;
@@ -307,4 +310,6 @@ extern int16 Iref_temp;
 extern Uint16 Board_ID;
 
 extern eConfig_USART_send_period USART_send_period;
-#endif
+#endif   //_MAIN_C_
+
+#endif   //_MAIN_H_

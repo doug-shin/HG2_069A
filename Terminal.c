@@ -1,5 +1,3 @@
-
-
 #define __TERMINAL_C
 
 #include "DSP28x_Project.h"     // Device Headerfile and Examples Include File
@@ -96,13 +94,13 @@ void scia_xmit(int a)
     SciaRegs.SCITXBUF=a;
 }
 
-void scia_msg(char *msg)
+void scia_msg(char *message)
 {
     int i;
     i = 0;
-    while(msg[i] != '\0')
+    while(message[i] != '\0')
     {
-        scia_xmit(msg[i]);
+        scia_xmit(message[i]);
         i++;
     }
 }
