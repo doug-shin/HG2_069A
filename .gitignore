@@ -17,6 +17,7 @@ Release/
 *.cout
 *.hex
 *.bin
+*.asm
 
 # Code Composer Studio specific
 .metadata/
@@ -30,9 +31,26 @@ RemoteSystemsTempFiles/
 Debug_*/
 Release_*/
 *.launch
+targetConfigs/
+
+# CCS Project files (선택적으로 포함할 수 있음)
+# .ccsproject
+# .cproject  
+# .project
 
 # CCS Configuration
 *.ccxml
+
+# SysConfig generated files
+syscfg/
+*.syscfg.c
+*.syscfg.h
+*.opt
+
+# TI Compiler generated files
+*.asm
+*.src
+*.sbl
 
 # Temporary files
 *.tmp
@@ -44,7 +62,6 @@ Thumbs.db
 ._*
 
 # Automatically generated files
-*.opt
 *.xml.config
 *.xml_gen
 

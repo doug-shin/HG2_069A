@@ -496,88 +496,100 @@ void eCana_config (void)
     ECanaMboxes.MBOX10.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
     ECanaMboxes.MBOX10.MSGID.bit.STDMSGID = 0xF0 + 10; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
     
+    // MBOX16 설정
+    ECanaMboxes.MBOX16.MSGID.all = 0;         // 전체 ID 초기화
+    ECanaMboxes.MBOX16.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
+    ECanaMboxes.MBOX16.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
+    ECanaMboxes.MBOX16.MSGID.bit.EXTMSGID_L = 0x117;
+
+    // MBOX17 설정
+    ECanaMboxes.MBOX17.MSGID.all = 0;         // 전체 ID 초기화
+    ECanaMboxes.MBOX17.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
+    ECanaMboxes.MBOX17.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
+    ECanaMboxes.MBOX17.MSGID.bit.EXTMSGID_L = 0x116;
+
+    // MBOX18 설정
+    ECanaMboxes.MBOX18.MSGID.all = 0;         // 전체 ID 초기화
+    ECanaMboxes.MBOX18.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
+    ECanaMboxes.MBOX18.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
+    ECanaMboxes.MBOX18.MSGID.bit.EXTMSGID_L = 0x115;
+
+    // MBOX19 설정
+    ECanaMboxes.MBOX19.MSGID.all = 0;         // 전체 ID 초기화
+    ECanaMboxes.MBOX19.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
+    ECanaMboxes.MBOX19.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
+    ECanaMboxes.MBOX19.MSGID.bit.EXTMSGID_L = 0x114;
+
     // MBOX20 설정
     ECanaMboxes.MBOX20.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX20.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX20.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x100;
+    ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x113;
 
     // MBOX21 설정
     ECanaMboxes.MBOX21.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX21.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX21.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x100;
+    ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x112;
 
     // MBOX22 설정
     ECanaMboxes.MBOX22.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX22.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX22.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x100;
+    ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x111;
 
     // MBOX23 설정
     ECanaMboxes.MBOX23.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX23.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX23.MSGID.bit.AME = 0;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x360;
+    ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x110;
 
     // MBOX24 설정
     ECanaMboxes.MBOX24.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX24.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX24.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaLAMRegs.LAM24.all = 0;
-    ECanaLAMRegs.LAM24.bit.LAMI = 1;
-    ECanaLAMRegs.LAM24.bit.LAM_H = 0xFF;
-    ECanaLAMRegs.LAM24.bit.LAM_L = 0xFF;
+    ECanaMboxes.MBOX24.MSGID.bit.AME = 0;     // 필터 마스크 활성화 (Acceptance Mask Enable)
+    ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x2200;
 
     // MBOX25 설정
     ECanaMboxes.MBOX25.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX25.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX25.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x200;    
-    ECanaLAMRegs.LAM25.all = 0;
-    ECanaLAMRegs.LAM25.bit.LAMI = 1;
-    ECanaLAMRegs.LAM25.bit.LAM_H = 0xFF;
-    ECanaLAMRegs.LAM25.bit.LAM_L = 0xFF;
+    ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x2201;
 
     // MBOX26 설정  
     ECanaMboxes.MBOX26.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX26.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX26.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX26.MSGID.bit.EXTMSGID_L = 0x200;    
+    ECanaMboxes.MBOX26.MSGID.bit.EXTMSGID_L = 0x360;
     ECanaLAMRegs.LAM26.all = 0;
     ECanaLAMRegs.LAM26.bit.LAMI = 1;
-    ECanaLAMRegs.LAM26.bit.LAM_H = 0xFF;
     ECanaLAMRegs.LAM26.bit.LAM_L = 0xFF;
 
     // MBOX27 설정
     ECanaMboxes.MBOX27.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX27.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX27.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX27.MSGID.bit.EXTMSGID_L = 0x200;    
+    ECanaMboxes.MBOX27.MSGID.bit.EXTMSGID_L = 0x200;
     ECanaLAMRegs.LAM27.all = 0;
     ECanaLAMRegs.LAM27.bit.LAMI = 1;
-    ECanaLAMRegs.LAM27.bit.LAM_H = 0xFF;
     ECanaLAMRegs.LAM27.bit.LAM_L = 0xFF;
 
     // MBOX28 설정
     ECanaMboxes.MBOX28.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX28.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX28.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX28.MSGID.bit.EXTMSGID_L = 0x200;    
+    ECanaMboxes.MBOX28.MSGID.bit.EXTMSGID_L = 0x200;
     ECanaLAMRegs.LAM28.all = 0;
     ECanaLAMRegs.LAM28.bit.LAMI = 1;
-    ECanaLAMRegs.LAM28.bit.LAM_H = 0xFF;
     ECanaLAMRegs.LAM28.bit.LAM_L = 0xFF;
 
     // MBOX29 설정
     ECanaMboxes.MBOX29.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX29.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
     ECanaMboxes.MBOX29.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x200;    
+    ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x200;
     ECanaLAMRegs.LAM29.all = 0;
     ECanaLAMRegs.LAM29.bit.LAMI = 1;
-    ECanaLAMRegs.LAM29.bit.LAM_H = 0xFF;
     ECanaLAMRegs.LAM29.bit.LAM_L = 0xFF;
 
     // MBOX30 설정
@@ -587,18 +599,16 @@ void eCana_config (void)
     ECanaMboxes.MBOX30.MSGID.bit.EXTMSGID_L = 0x200;
     ECanaLAMRegs.LAM30.all = 0;
     ECanaLAMRegs.LAM30.bit.LAMI = 1;
-    ECanaLAMRegs.LAM30.bit.LAM_H = 0xFF;
-    ECanaLAMRegs.LAM30.bit.LAM_L = 0xFF;
+    ECanaLAMRegs.LAM30.bit.LAM_L = 0xFE;
 
     // MBOX31 설정
     ECanaMboxes.MBOX31.MSGID.all = 0;         // 전체 ID 초기화
     ECanaMboxes.MBOX31.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX31.MSGID.bit.AME = 0;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x200;
+    ECanaMboxes.MBOX31.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
+    ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x201;
     ECanaLAMRegs.LAM31.all = 0;
     ECanaLAMRegs.LAM31.bit.LAMI = 1;
-    ECanaLAMRegs.LAM31.bit.LAM_H = 0xFF;
-    ECanaLAMRegs.LAM31.bit.LAM_L = 0xFF;
+    ECanaLAMRegs.LAM31.bit.LAM_L = 0xFE;
 
     // 전역 마스크 설정
     ECanaShadow.CANGAM.all = 0;
@@ -625,12 +635,16 @@ void eCana_config (void)
     ECanaShadow.CANMD.bit.MD9 = 1;
     ECanaShadow.CANMD.bit.MD10 = 1;
 
+    ECanaShadow.CANMD.bit.MD16 = 0;
+    ECanaShadow.CANMD.bit.MD17 = 0;
+    ECanaShadow.CANMD.bit.MD18 = 0;
+    ECanaShadow.CANMD.bit.MD19 = 0;
     ECanaShadow.CANMD.bit.MD20 = 0;
     ECanaShadow.CANMD.bit.MD21 = 0;
     ECanaShadow.CANMD.bit.MD22 = 0;
-    ECanaShadow.CANMD.bit.MD23 = 1;
-    ECanaShadow.CANMD.bit.MD24 = 1;
-    ECanaShadow.CANMD.bit.MD25 = 1;
+    ECanaShadow.CANMD.bit.MD23 = 0;
+    ECanaShadow.CANMD.bit.MD24 = 0;
+    ECanaShadow.CANMD.bit.MD25 = 0;
     ECanaShadow.CANMD.bit.MD26 = 1;
     ECanaShadow.CANMD.bit.MD27 = 1;
     ECanaShadow.CANMD.bit.MD28 = 1;
@@ -646,7 +660,25 @@ void eCana_config (void)
     // field) a shadow register is not required.
     //
     // ECanaRegs.CANME.all = 0xFFFFFFFF; // Enable all Mailboxes   // 메일박스 Enable/Disable 설정
-    ECanaRegs.CANME.bit.ME30 = 1;
+
+    ECanaShadow.CANME.all = ECanaRegs.CANME.all;
+    ECanaShadow.CANME.bit.ME16 = 1;
+    ECanaShadow.CANME.bit.ME17 = 1;
+    ECanaShadow.CANME.bit.ME18 = 1;
+    ECanaShadow.CANME.bit.ME19 = 1;
+    ECanaShadow.CANME.bit.ME20 = 1;
+    ECanaShadow.CANME.bit.ME21 = 1;
+    ECanaShadow.CANME.bit.ME22 = 1;
+    ECanaShadow.CANME.bit.ME23 = 1;
+    ECanaShadow.CANME.bit.ME24 = 1;
+    ECanaShadow.CANME.bit.ME25 = 1;
+    ECanaShadow.CANME.bit.ME26 = 1;
+    ECanaShadow.CANME.bit.ME27 = 0;
+    ECanaShadow.CANME.bit.ME28 = 0;
+    ECanaShadow.CANME.bit.ME29 = 0;
+    ECanaShadow.CANME.bit.ME30 = 1;
+    ECanaShadow.CANME.bit.ME31 = 1;
+    ECanaRegs.CANME.all = ECanaShadow.CANME.all;
 
     //
     // Specify that 8 bits will be sent/received
@@ -663,6 +695,10 @@ void eCana_config (void)
     ECanaMboxes.MBOX9.MSGCTRL.bit.DLC = 4;
     ECanaMboxes.MBOX10.MSGCTRL.bit.DLC = 4;
 
+    ECanaMboxes.MBOX16.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX17.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX18.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX19.MSGCTRL.bit.DLC = 8;
     ECanaMboxes.MBOX20.MSGCTRL.bit.DLC = 8;
     ECanaMboxes.MBOX21.MSGCTRL.bit.DLC = 8;
     ECanaMboxes.MBOX22.MSGCTRL.bit.DLC = 8;
@@ -683,36 +719,22 @@ void eCana_config (void)
     EALLOW;
     ECanaRegs.CANMIM.all = 0x0; // 메일박스 인터럽트 마스크 설정
 
-    // MBOX 23-31 인터럽트 활성화
-    ECanaRegs.CANMIM.bit.MIM23 = 1;
-    ECanaRegs.CANMIM.bit.MIM24 = 1;
-    ECanaRegs.CANMIM.bit.MIM25 = 1;
-    ECanaRegs.CANMIM.bit.MIM26 = 1;
-    ECanaRegs.CANMIM.bit.MIM27 = 1;
-    ECanaRegs.CANMIM.bit.MIM28 = 1;
-    ECanaRegs.CANMIM.bit.MIM29 = 1;
+    // MBOX 25-31 인터럽트 활성화
     ECanaRegs.CANMIM.bit.MIM30 = 1;
     ECanaRegs.CANMIM.bit.MIM31 = 1;
 
-    ECanaRegs.CANMIL.bit.MIL23 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL24 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL25 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL26 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL27 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL28 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL29 = 0;    // ECAN0INTA로 할당
     ECanaRegs.CANMIL.bit.MIL30 = 0;    // ECAN0INTA로 할당
     ECanaRegs.CANMIL.bit.MIL31 = 0;    // ECAN0INTA로 할당
     
     // 전역 인터럽트 설정
     ECanaRegs.CANGIM.all = 0;
     ECanaRegs.CANGIM.bit.GIL = 0;       // 모든 인터럽트를 INT9.5에 할당
-    ECanaRegs.CANGIM.bit.I0EN = 1;      // 메일박스 0-16 인터럽트 활성화
-    ECanaRegs.CANGIM.bit.I1EN = 1;      // 메일박스 17-32 인터럽트 활성화
-    ECanaRegs.CANGIM.bit.AAIM = 1;      // Abort Acknowledge 인터럽트 활성화
-    ECanaRegs.CANGIM.bit.WDIM = 1;      // Write Denied 인터럽트 활성화
-    ECanaRegs.CANGIM.bit.WUIM = 1;      // Wake-up 인터럽트 활성화
-    ECanaRegs.CANGIM.bit.BOIM = 1;      // Bus-off 인터럽트 활성화
+    ECanaRegs.CANGIM.bit.I0EN = 1;      // 인터럽트0 활성화
+    ECanaRegs.CANGIM.bit.I1EN = 0;      // 인터럽트1 비활성화
+    ECanaRegs.CANGIM.bit.AAIM = 0;      // Abort Acknowledge 인터럽트 비활성화
+    ECanaRegs.CANGIM.bit.WDIM = 0;      // Write Denied 인터럽트 비활성화
+    ECanaRegs.CANGIM.bit.WUIM = 0;      // Wake-up 인터럽트 비활성화
+    ECanaRegs.CANGIM.bit.BOIM = 0;      // Bus-off 인터럽트 비활성화
 
  //  메일박스 MBOXx 레지스터 의 내용 초기화와 송수신 데이터 크기 설정, 모드 설정을 함.
  //  인터럽트설정 CANMIM, CANMIL, CANGIM 레지스터) 관련 PIE, CPU 인터럽트 라인 설정.

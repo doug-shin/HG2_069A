@@ -121,6 +121,9 @@ Run 신호를 슬레이브로 전송시 0,1이 아닌 특정값으로 Run = 0xA0
 #include "protocol.h"
 #include "Terminal.h"
 
+// Protocol 관련 외부 변수 선언
+extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
+extern STATE module_state;           // 모듈 상태
 
 void InitEPwm1Example(void);
 void InitEPwm2Example(void);
@@ -129,8 +132,6 @@ void InitEPwm3Example(void);
 void spi_init(void);
 void eCana_config (void);
 
-void SaveCommand(Uint16 mbox_num);
-void ProcessCommand(Uint16 mbox_num);
 void SendParameters(void);  // 추가된 함수 선언
 
 void stra_xmit(UCHAR  *buff, Uint16 Length);
@@ -357,7 +358,6 @@ void main(void)
    InitSciaGpio(); // RS-232, PCB ref. CN4 , for Parameter Monitoring
    scia_fifo_init();      // Initialize the SCI FIFO
    scia_init();
-   InitProtocol();
 
    EALLOW;   // This is needed to write to EALLOW protected registers
    En485_ON( );   // GpioCtrlRegs.GPADIR.bit.GPIO30 = 1;
@@ -386,6 +386,8 @@ void main(void)
     InitECanaGpio();         // GPIO를 CAN 통신 용으로 설정
     InitECana();          // CAN 초기화 : CAN2.0A 모드, 1Mbps 속도
     eCana_config();
+
+    InitProtocol();
 
     InitAdc();  // For this example, init the ADC
     AdcOffsetSelfCal();
@@ -546,6 +548,12 @@ void main(void)
         }
 
         (void) eMBPoll(); // 2024.06.04 반드시 메인 무한 루프에서 호출할 것.
+
+        // CAN 보고 처리
+        if(can_report_flag == 1) {
+            can_report_flag = 0;            
+            SendCANReport(16);  // 상태에 따라 100번대 또는 110번대 메시지 전송
+        }
 
         if(can_tx_flag == 1)
         {
@@ -795,34 +803,6 @@ __interrupt void epwm3_isr(void) // 100KHz
 //       if ( !hw_fault && !over_voltage_flag && filtered_switch_input) Run = 1;
 //       if ( !(hw_fault || over_voltage_flag) && filtered_switch_input) Run = 1;
 
-       else Run = 0;
-
-      if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // 평균한 값을 20khz 마다 체크. fault 표시 필요
-      else if (filtered_switch_input == 0 ) over_voltage_flag = 0;
-
-
-//       if (dab_ok)
-//       {
-//           if (filtered_switch_input) // 외부 ON/OFF 스위치
-//           {
-//               if(over_voltage_flag) Run = 0; // fault
-//               else
-//               {
-//                   Run = 1;
-//                }
-//
-//           } // CN2, Switch
-//           else
-//           {
-//               Run = 0;
-//               over_voltage_flag = 0; //fault clear
-//           }
-//       }
-//       else
-//       {
-//           Run = 0;
-//       }
-
 
        if(Run)     GpioDataRegs.GPADAT.bit.GPIO17 = 0;
        else        GpioDataRegs.GPADAT.bit.GPIO17 = 1; //Buck_Enable
@@ -836,6 +816,13 @@ __interrupt void epwm3_isr(void) // 100KHz
         In_Temp = (float32) ((Temp_ad_sen_1 * 20.4) + 1.4);
 
         Calculating_voltage_average_and_monitoring_average();
+        
+        // CAN 보고 타이밍 관리 (0.1ms 단위로 카운트) - case 3에서 처리
+        if(can_report_counter++ >= can_report_interval) {
+            can_report_counter = 0;
+            can_report_flag = 1;  // 메인 루프에서 처리
+        }
+        
         _100khz_count++;
         break;
 
@@ -1086,40 +1073,23 @@ __interrupt void cla1_task1_isr(void)
 //===========================================================================
 
 __interrupt void ecan0_isr(void)
-{
-    Uint16 mbox30cnt = 0;
-    
-    // 테스트용으로 MBOX31만 처리
-    if (ECanaRegs.CANRMP.bit.RMP30)
+{        
+    // 수신 메일박스 체크 (MBOX30, 31)
+    if (ECanaRegs.CANRMP.bit.RMP30 != 0) 
     {
-        mbox30cnt++;
-        test_data[0] = ECanaMboxes.MBOX30.MDL.byte.BYTE0;
-        test_data[1] = ECanaMboxes.MBOX30.MDL.byte.BYTE1;
-        test_data[2] = ECanaMboxes.MBOX30.MDL.byte.BYTE2;
-        test_data[3] = ECanaMboxes.MBOX30.MDL.byte.BYTE3;
-        test_data[4] = ECanaMboxes.MBOX30.MDH.byte.BYTE4;
-        test_data[5] = ECanaMboxes.MBOX30.MDH.byte.BYTE5;
-        test_data[6] = ECanaMboxes.MBOX30.MDH.byte.BYTE6;
-        test_data[7] = ECanaMboxes.MBOX30.MDH.byte.BYTE7;
-        
-        
-        // ID 확인 후 적절한 함수 호출 (하위 비트가 0x210인지 확인)
-        if (ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L == 0x210)
-        {
-            ProcessCommand(30);
-        }
-        else
-        {
-            SaveCommand(30);
-        }
-        
-        ECanaRegs.CANRMP.bit.RMP30 = 1;
+        ProcessCANCommand(30, 24);  // 수신: MBOX30, 송신: MBOX24
     }
     
-    // 인터럽트 플래그 초기화
+    // MBOX31 수신 확인
+    if (ECanaRegs.CANRMP.bit.RMP31 != 0) 
+    {
+        ProcessCANCommand(31, 25);  // 수신: MBOX31, 송신: MBOX25
+    }
+
+    // 인터럽트 플래그 클리어
     ECanaRegs.CANGIF0.all = 0xFFFFFFFF;
     
-    // PIE 인터럽트 응답
+    // 인터럽트 확인 응답
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }
 

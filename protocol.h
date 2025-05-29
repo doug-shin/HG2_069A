@@ -12,30 +12,6 @@
                               (((Uint32)(data)[(offset) + 1]) << 8) | \
                               ((Uint32)(data)[(offset)]))
 
-// Uint16 값을 바이트 배열에 스왑하여 저장하는 매크로
-#define CAN_PUT_UINT16(data, offset, value) \
-    do { \
-        (data)[(offset)] = (Uint8)(value); \
-        (data)[(offset) + 1] = (Uint8)((value) >> 8); \
-    } while(0)
-
-// Uint32 값을 바이트 배열에 스왑하여 저장하는 매크로
-#define CAN_PUT_UINT32(data, offset, value) \
-    do { \
-        (data)[(offset)] = (Uint8)(value); \
-        (data)[(offset) + 1] = (Uint8)(((value) >> 8)); \
-        (data)[(offset) + 2] = (Uint8)(((value) >> 16)); \
-        (data)[(offset) + 3] = (Uint8)(((value) >> 24)); \
-    } while(0)
-
-// float32 값을 바이트 배열에 스왑하여 저장하는 매크로
-#define CAN_PUT_FLOAT32(data, offset, value) \
-    do { \
-        union { float32 f; Uint32 u; } temp; \
-        temp.f = (value); \
-        CAN_PUT_UINT32((data), (offset), temp.u); \
-    } while(0)
-
 // float32 타입의 Endian 변환 매크로 (GCC 확장 문법)
 #define SWAP_FLOAT(data, offset) \
     ({ \
@@ -43,13 +19,49 @@
         *((float32*)&_temp); \
     })
 
-// float32 타입의 Endian 변환 매크로 (표준 C 호환 접근법)
-static Uint32 _swap_float_temp;
-#define SWAP_FLOAT_C(data, offset) \
-    (_swap_float_temp = SWAP32((data), (offset)), *((float32*)&_swap_float_temp))
+// MBOX 구조체 전용 매크로들 (F28069 CAN 메일박스용)
+// Uint8 값을 MBOX의 특정 바이트에 저장
+#define PUT_MBOX_BYTE(mbox, byte_pos, value) \
+    do { \
+        if((byte_pos) == 0) (mbox).MDL.byte.BYTE0 = (Uint8)(value); \
+        else if((byte_pos) == 1) (mbox).MDL.byte.BYTE1 = (Uint8)(value); \
+        else if((byte_pos) == 2) (mbox).MDL.byte.BYTE2 = (Uint8)(value); \
+        else if((byte_pos) == 3) (mbox).MDL.byte.BYTE3 = (Uint8)(value); \
+        else if((byte_pos) == 4) (mbox).MDH.byte.BYTE4 = (Uint8)(value); \
+        else if((byte_pos) == 5) (mbox).MDH.byte.BYTE5 = (Uint8)(value); \
+        else if((byte_pos) == 6) (mbox).MDH.byte.BYTE6 = (Uint8)(value); \
+        else if((byte_pos) == 7) (mbox).MDH.byte.BYTE7 = (Uint8)(value); \
+    } while(0)
 
-// float32 타입의 Endian 변환 함수
-float32 SwapFloat(Uint8* data, Uint16 offset);
+// Uint16 값을 MBOX에 리틀 엔디안으로 저장 (2바이트)
+#define PUT_MBOX_UINT16(mbox, start_byte, value) \
+    do { \
+        PUT_MBOX_BYTE((mbox), (start_byte), (Uint8)((value) & 0xFF)); \
+        PUT_MBOX_BYTE((mbox), (start_byte) + 1, (Uint8)(((value) >> 8) & 0xFF)); \
+    } while(0)
+
+// Uint32 값을 MBOX에 리틀 엔디안으로 저장 (4바이트)
+#define PUT_MBOX_UINT32(mbox, start_byte, value) \
+    do { \
+        PUT_MBOX_BYTE((mbox), (start_byte), (Uint8)((value) & 0xFF)); \
+        PUT_MBOX_BYTE((mbox), (start_byte) + 1, (Uint8)(((value) >> 8) & 0xFF)); \
+        PUT_MBOX_BYTE((mbox), (start_byte) + 2, (Uint8)(((value) >> 16) & 0xFF)); \
+        PUT_MBOX_BYTE((mbox), (start_byte) + 3, (Uint8)(((value) >> 24) & 0xFF)); \
+    } while(0)
+
+// float32 값을 MBOX에 저장 (4바이트, 전역 union 사용)
+#define PUT_MBOX_FLOAT(mbox, start_byte, value) \
+    do { \
+        float_converter.f = (value); \
+        PUT_MBOX_UINT32((mbox), (start_byte), float_converter.u); \
+    } while(0)
+
+// int16 값을 MBOX에 저장 (2바이트, 부호 있는 정수)
+#define PUT_MBOX_INT16(mbox, start_byte, value) \
+    do { \
+        Uint16 _temp_int16 = (Uint16)(value); \
+        PUT_MBOX_UINT16((mbox), (start_byte), _temp_int16); \
+    } while(0)
 
 // 모듈 상태 정의
 typedef enum {
@@ -127,7 +139,7 @@ typedef struct {
     
     // 2. 설정값
     MODE cmd_mode;            // 운전 모드
-    Uint8 cmd_step;           // 스텝 번호
+    Uint16 cmd_step;           // 스텝 번호
     float32 cmd_voltage;      // 전압 설정값
     float32 cmd_current;      // 전류 설정값
     float32 cmd_power;        // 파워 설정값
@@ -135,8 +147,8 @@ typedef struct {
     // 3. 모니터링값
     float32 fb_voltage;          // 전압
     float32 fb_current;          // 전류
-    float32 fb_t1_temp;          // 온도1
-    float32 fb_t2_temp;          // 온도2
+    int16 fb_t1_temp;            // 온도1
+    int16 fb_t2_temp;            // 온도2
     float32 fb_charge_ah;        // 충전량 (Ah)
     float32 fb_discharge_ah;     // 방전량 (Ah)
     float32 fb_charge_wh;        // 충전량 (Wh)
@@ -174,7 +186,7 @@ typedef struct {
     Uint32 time_operation;    // 운전 시간 설정 (10ms 단위)
     
     // 8. 패턴 데이터
-    Uint8 pattern_index;              // 패턴 인덱스 번호
+    Uint32 pattern_index;              // 패턴 인덱스 번호
     PATTERN_DATA_TYPE pattern_data_type;    // 패턴 데이터 형태
     PATTERN_CONTROL_TYPE pattern_control_type; // 제어 Type
     Uint16 pattern_time_unit;         // 패턴 단위 시간
@@ -196,41 +208,31 @@ typedef struct {
     Uint16 global_current_change_time;  // 전류 변화량 시간 (ms)
 } PROTOCOL_INTEGRATED;
 
-// CAN 메시지 구조체
-typedef struct {
-    Uint32 id;      // CAN ID
-    Uint8 dlc;      // 데이터 길이
-    Uint8 data[8];  // 데이터
-} CAN_MESSAGE;
-
 // 초기화 및 처리 함수
 void InitProtocol(void);
 
 // 메시지 전송 함수
 Uint16 SendAck(Uint16 command_id);
 Uint16 SendCommandAck(Uint8* data);
-void SendEndReport(void);
-void SendReport(Uint16 index);
-void SendCANMessage(Uint32 id, Uint8 *message);
+void SendCANEndReport(Uint32 mbox_num);
+void SendCANReport(Uint32 mbox_num);
 
 // 메일박스 기반 함수 선언 추가
-void SaveCommand(Uint16 mbox_num);              // 메일박스 데이터 저장 함수
-void ProcessCommand(Uint16 mbox_num);           // 메일박스 명령 처리 함수
+void ProcessCANCommand(Uint32 rx_mbox, Uint32 tx_mbox);  // 메일박스 명령 처리 함수 (수신/송신 분리)
 
 // 상태 전환 함수
 void TransitionToRunning(void);
 void TransitionToIdle(void);
 
 // 타이머 및 업데이트 함수
-void PeriodicTask(void);
-void UpdateFeedbackValues(void);
-void UpdateOperationTime(void);
-void UpdateCVTime(void);
-void UpdateCapacityValues(void);
+void UpdateCANFeedbackValues(void);           // 모든 피드백 값 통합 업데이트
+
+// 메일박스 관리 함수
+void SetMBOXChannels(Uint16 start_mbox, Uint16 count);
+void ChangeMBOXIDs(Uint16 base_id, Uint16 start_mbox, Uint16 count);
 
 // CAN 인터럽트 관련 함수
-
-void CheckHeartBitTimeout(void);                   // Heart Bit 타임아웃 체크 함수
+void CheckCANHeartBitTimeout(void);                // Heart Bit 타임아웃 체크 함수
 
 // Heart Bit 관련 전역 변수 선언
 extern Uint16 can_360_msg_count;       // Heart Bit 메시지 수신 횟수
@@ -245,9 +247,26 @@ extern float32 Vo_sen;
 extern Uint16 hw_fault;
 extern Uint16 over_voltage_flag;
 
-// CAN 메시지 바이트 배열 조작 함수
-void CanPutUint16(Uint8* msg, Uint16 offset, Uint16 value);
-void CanPutUint32(Uint8* msg, Uint16 offset, Uint32 value);
-void CanPutFloat32(Uint8* msg, Uint16 offset, float32 value);
+// 전역 변수 선언
+extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
+extern STATE module_state;           // 모듈 상태
+
+// CAN 보고 관련 변수 (protocol.c에서 정의됨)
+extern Uint16 can_report_flag;           // CAN 보고 플래그
+extern Uint16 can_report_counter;        // CAN 보고 카운터
+extern Uint16 can_report_interval;       // CAN 보고 간격
+
+// float32 <-> Uint32 변환용 union 타입 정의
+typedef union {
+    float32 f;
+    Uint32 u;
+} FLOAT_CONVERTER_UNION;
+
+// float32 <-> Uint32 변환용 전역 union 변수들
+extern FLOAT_CONVERTER_UNION float_converter;
+
+// Heart Bit 타임아웃 관련 변수
+extern Uint16 can_360_timeout_counter;  // Heart Bit 타임아웃 카운터
+extern Uint16 can_360_timeout_flag;     // Heart Bit 타임아웃 플래그
 
 #endif /* PROTOCOL_H_ */

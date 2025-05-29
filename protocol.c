@@ -9,63 +9,28 @@
 
 #define MODULE_CHANNEL 0x01 // 모듈 채널번호
 
-/**
- * float32 타입의 Endian 변환 함수
- * @param data 바이트 배열
- * @param offset 시작 위치
- * @return 변환된 float32 값
- */
-float32 SwapFloat(Uint8* data, Uint16 offset) {
-    Uint32 temp = SWAP32(data, offset);
-    return *((float32*)&temp);
-}
-
-/**
- * Uint16 값을 CAN 메시지 바이트 배열에 엔디안 변환하여 저장하는 함수
- * @param msg 바이트 배열
- * @param offset 시작 위치
- * @param value 저장할 Uint16 값
- */
-void CanPutUint16(Uint8* data, Uint16 offset, Uint16 value) {
-    data[offset] = (Uint8)(value);    // 하위 바이트
-    data[offset + 1] = (Uint8)(value >> 8);       // 상위 바이트
-}
-
-/**
- * Uint32 값을 CAN 메시지 바이트 배열에 엔디안 변환하여 저장하는 함수
- * @param msg 바이트 배열
- * @param offset 시작 위치
- * @param value 저장할 Uint32 값
- */
-void CanPutUint32(Uint8* data, Uint16 offset, Uint32 value) {
-    data[offset] = (Uint8)(value);            // 최하위 바이트
-    data[offset + 1] = (Uint8)(value >> 8);   // 하위 중간 바이트
-    data[offset + 2] = (Uint8)(value >> 16);  // 상위 중간 바이트
-    data[offset + 3] = (Uint8)(value >> 24);  // 최상위 바이트
-}
-
-/**
- * float32 값을 CAN 메시지 바이트 배열에 엔디안 변환하여 저장하는 함수
- * @param msg 바이트 배열
- * @param offset 시작 위치
- * @param value 저장할 float32 값
- */
-void CanPutFloat32(Uint8* data, Uint16 offset, float32 value) {
-    Uint32* temp = (Uint32*)&value;    // float를 Uint32로 재해석
-    CanPutUint32(data, offset, *temp);  // Uint32로 변환된 값을 저장
-}
-
 /*----------------------------------------------------------------------
  * 전역 변수 정의
  *----------------------------------------------------------------------*/
 PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
 STATE module_state;           // 모듈 상태 (STATE_IDLE or STATE_RUNNING)
 
+// float32 <-> Uint32 변환용 전역 union 변수들
+FLOAT_CONVERTER_UNION float_converter;
+
 // Heart Bit 타임아웃 관련 변수 정의
 Uint16 can_360_timeout_counter = 0;  // Heart Bit 타임아웃 카운터
 Uint16 can_360_timeout_flag = 0;     // Heart Bit 타임아웃 플래그
+Uint16 can_report_flag = 0;           // CAN 보고 플래그
+Uint16 can_report_counter = 0;        // CAN 보고 카운터
+Uint16 can_report_interval = 2000;    // CAN 보고 간격 (기본값: 100ms = 2000 * 0.05ms, 20kHz 주기)
 
-// 프로토콜 초기화 함수
+extern volatile struct ECAN_REGS ECanaShadow;
+
+// CAN 메일박스 배열 포인터 (최적화를 위해 전역으로 선언)
+static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
+
+// 프로토콜 초기화 함수 - CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
 void InitProtocol(void) {
     // 기본 정보 초기화
     protocol.channel = MODULE_CHANNEL;
@@ -143,30 +108,37 @@ void InitProtocol(void) {
     protocol.global_voltage_change_time = 0;
     protocol.global_current_change = 0;
     protocol.global_current_change_time = 0;
+    
+    // 모든 메일박스 채널 정보 설정 (MBOX16~31, 16개)
+    SetMBOXChannels(16, 16);
+    
+    // 초기 ID 설정 (대기 모드, MBOX16~23)
+    ChangeMBOXIDs(0x110, 16, 8);
 }
 
 /**
  * 메일박스의 데이터를 프로토콜 구조체에 저장하는 함수
- * @param mbox_num 메일박스 번호
+ * @param isr_mbox 수신 메일박스 번호
+ * @param ack_mbox 송신 메일박스 번호 (ACK 전송용)
  */
-void SaveCommand(Uint16 mbox_num)
+void ProcessCANCommand(Uint32 isr_mbox, Uint32 ack_mbox)
 {
     Uint16 command_id;
+    Uint16 ack_id;
     Uint8 data[8];
-    struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
-    
-    // MSGID에서 명령 ID 추출
-    command_id = mbox_array[mbox_num].MSGID.all & 0xFFFF;
+
+    // 수신 메일박스에서 MSGID와 데이터 추출
+    command_id = mbox_array[isr_mbox].MSGID.all & 0xFFFF;
     
     // MDL과 MDH에서 데이터 추출
-    data[0] = mbox_array[mbox_num].MDL.byte.BYTE0;
-    data[1] = mbox_array[mbox_num].MDL.byte.BYTE1;
-    data[2] = mbox_array[mbox_num].MDL.byte.BYTE2;
-    data[3] = mbox_array[mbox_num].MDL.byte.BYTE3;
-    data[4] = mbox_array[mbox_num].MDH.byte.BYTE4;
-    data[5] = mbox_array[mbox_num].MDH.byte.BYTE5;
-    data[6] = mbox_array[mbox_num].MDH.byte.BYTE6;
-    data[7] = mbox_array[mbox_num].MDH.byte.BYTE7;
+    data[0] = mbox_array[isr_mbox].MDL.byte.BYTE0;
+    data[1] = mbox_array[isr_mbox].MDL.byte.BYTE1;
+    data[2] = mbox_array[isr_mbox].MDL.byte.BYTE2;
+    data[3] = mbox_array[isr_mbox].MDL.byte.BYTE3;
+    data[4] = mbox_array[isr_mbox].MDH.byte.BYTE4;
+    data[5] = mbox_array[isr_mbox].MDH.byte.BYTE5;
+    data[6] = mbox_array[isr_mbox].MDH.byte.BYTE6;
+    data[7] = mbox_array[isr_mbox].MDH.byte.BYTE7;
     
     // 명령 데이터를 통합 구조체에 저장
     switch (command_id) {
@@ -214,6 +186,20 @@ void SaveCommand(Uint16 mbox_num)
         case 0x209:  // 스텝 명령 #9
             protocol.limit_capacity_discharge = SWAP_FLOAT(data, 0);
             break;
+
+        case 0x210:  // Control Command
+            switch (data[1]) {
+                case CMD_START:  // 시작 명령
+                    TransitionToRunning();
+                    break;
+
+                case CMD_STOP:  // 정지 명령
+                    TransitionToIdle();
+                    break;
+                
+                default:        // 알 수 없는 명령
+                    break;            
+            }
             
         case 0x250:  // Global Safety #1
             protocol.global_current_charge = SWAP_FLOAT(data, 0);
@@ -241,313 +227,247 @@ void SaveCommand(Uint16 mbox_num)
             break;
             
         default:
-            return;  // 알 수 없는 서브 ID
+            // 수신 메일박스 RMP 플래그 클리어
+            ECanaRegs.CANRMP.all = ((Uint32)1 << isr_mbox);
+            return;  // 알 수 없는 명령 ID는 ACK 응답 없이 종료
     }
-}
 
-// MBOX의 명령을 처리하는 함수
-void ProcessCommand(Uint16 mbox_num)
-{
-    Uint8 data[8];
-    struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
+    // 각 명령 ID에 대한 ACK ID 계산 (0x02xx → 0x22xx)
+    ack_id = 0x2200 | (command_id & 0xFF);
     
-    // MDL과 MDH에서 데이터 추출
-    data[0] = mbox_array[mbox_num].MDL.byte.BYTE0;
-    data[1] = mbox_array[mbox_num].MDL.byte.BYTE1;
-    data[2] = mbox_array[mbox_num].MDL.byte.BYTE2;
-    data[3] = mbox_array[mbox_num].MDL.byte.BYTE3;
-    data[4] = mbox_array[mbox_num].MDH.byte.BYTE4;
-    data[5] = mbox_array[mbox_num].MDH.byte.BYTE5;
-    data[6] = mbox_array[mbox_num].MDH.byte.BYTE6;
-    data[7] = mbox_array[mbox_num].MDH.byte.BYTE7;
+    EALLOW;
+    // 송신 메일박스 비활성화
+    ECanaShadow.CANME.all = ECanaRegs.CANME.all;
+    ECanaShadow.CANME.all &= ~((Uint32)1 << ack_mbox);
+    ECanaRegs.CANME.all = ECanaShadow.CANME.all;
     
-    // 명령어 처리 로직
-    // 예: 두 번째 바이트로 명령어 유형 판단
-    switch (data[1])
+    // 송신 메일박스에 ACK ID 설정
+    mbox_array[ack_mbox].MSGID.bit.EXTMSGID_L = ack_id;
+    mbox_array[ack_mbox].MSGID.bit.IDE = 1;  // 29비트 확장 ID 사용
+    
+    // 수신된 데이터를 송신 메일박스에 복사 (ACK 데이터)
+    mbox_array[ack_mbox].MDL.byte.BYTE0 = data[0];
+    mbox_array[ack_mbox].MDL.byte.BYTE1 = data[1];
+    mbox_array[ack_mbox].MDL.byte.BYTE2 = data[2];
+    mbox_array[ack_mbox].MDL.byte.BYTE3 = data[3];
+    mbox_array[ack_mbox].MDH.byte.BYTE4 = data[4];
+    mbox_array[ack_mbox].MDH.byte.BYTE5 = data[5];
+    mbox_array[ack_mbox].MDH.byte.BYTE6 = data[6];
+    mbox_array[ack_mbox].MDH.byte.BYTE7 = data[7];
+
+    // 송신 메일박스 활성화
+    ECanaShadow.CANME.all = ECanaRegs.CANME.all;
+    ECanaShadow.CANME.all |= ((Uint32)1 << ack_mbox);
+    ECanaRegs.CANME.all = ECanaShadow.CANME.all;
+    EDIS;
+
+    // 전송 요청
+    ECanaRegs.CANTRS.all = ((Uint32)1 << ack_mbox);
+    // 전송 완료 대기 (타임아웃 추가)
     {
-        case CMD_START:  // 시작 명령
-            // 작동 시작 로직 구현
-            Buck_EN = 1;
-            Run = 1;
-            TransitionToRunning();
-            break;
-            
-        case CMD_STOP:  // 정지 명령
-            // 작동 정지 로직 구현
-            Buck_EN = 0;
-            Run = 0;
-            TransitionToIdle();
-            break;
-            
-        default:
-            // 알 수 없는 명령
-            break;
+        Uint32 timeout_counter = 0;
+        while(!(ECanaRegs.CANTA.all & ((Uint32)1 << ack_mbox))) {
+            timeout_counter++;
+            if(timeout_counter > 10000) {  // 타임아웃 발생
+                // 전송 요청 취소 (TRR 레지스터 사용)
+                ECanaRegs.CANTRR.all = ((Uint32)1 << ack_mbox);
+                break;
+            }
+        }
+        // 전송 완료 플래그 클리어
+        ECanaRegs.CANTA.all = (Uint32)1 << ack_mbox;
     }
+
+    // 수신 메일박스 RMP 플래그 클리어
+    ECanaRegs.CANRMP.all = ((Uint32)1 << isr_mbox);
 }
 
 /**
- * 보고 메시지 전송 함수
- * 인덱스에 따라 다른 형식의 상태 보고 메시지를 생성하여 전송
- * @param index 보고 메시지 인덱스 (0~7)
+ * 통합 CAN 보고 함수 (일괄 전송 버전)
+ * 모든 메시지 데이터를 먼저 준비한 후 한꺼번에 송신 요청
+ * MBOX16~23 사용
  */
-void SendReport(Uint16 index) {
-    Uint8 data[8];
-    Uint32 id;
+void SendCANReport(Uint32 mbox_num) {
+    Uint32 i;
+    Uint32 wait_count;
+    const Uint32 mbox_mask = 0x00FF0000;  // MBOX16~23 마스크 (비트 16~23)
     
-    // 메시지 데이터 초기화
-    memset(data, 0, sizeof(data));
+    // 1. 모든 메시지 데이터 준비 (8개 메시지)
     
-    // 기본 ID 설정 (0xXX0100~0xXX0107 또는 0xXX0110~0xXX0117)
-    // 모듈 상태에 따라 기본 ID 결정
-    if (module_state == STATE_RUNNING) {
-        id = 0x00000100 | (protocol.channel << 8) | index;
-    } else {
-        id = 0x00000110 | (protocol.channel << 8) | index;
+    // Online Data #1 - 기본 상태 정보
+    PUT_MBOX_BYTE(mbox_array[mbox_num +7], 0, protocol.channel);
+    PUT_MBOX_UINT16(mbox_array[mbox_num +7], 1, protocol.cmd_step);
+    PUT_MBOX_BYTE(mbox_array[mbox_num +7], 3, protocol.status);
+    PUT_MBOX_BYTE(mbox_array[mbox_num +7], 4, protocol.mode);
+    PUT_MBOX_BYTE(mbox_array[mbox_num +7], 5, protocol.state_bits.all);
+    PUT_MBOX_UINT16(mbox_array[mbox_num +7], 6, protocol.event_code);
+    
+    // Online Data #2 - 온도 및 전압
+    PUT_MBOX_INT16(mbox_array[mbox_num +6], 0, protocol.fb_t1_temp);
+    PUT_MBOX_INT16(mbox_array[mbox_num +6], 2, protocol.fb_t2_temp);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +6], 4, protocol.fb_voltage);
+    
+    // Online Data #3 - 전류 및 CV 시간
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +5], 0, protocol.fb_current);
+    PUT_MBOX_UINT32(mbox_array[mbox_num +5], 4, protocol.fb_cv_time);
+    
+    // Online Data #4 - 충방전 Ah
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +4], 0, protocol.fb_charge_ah);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +4], 4, protocol.fb_discharge_ah);
+    
+    // Online Data #5 - 충방전 Wh
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +3], 0, protocol.fb_charge_wh);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num +3], 4, protocol.fb_discharge_wh);
+    
+    // Online Data #6 - 운전 시간
+    PUT_MBOX_UINT32(mbox_array[mbox_num +2], 0, protocol.fb_operation_time);
+    PUT_MBOX_UINT32(mbox_array[mbox_num +2], 4, 0);  // Reserved
+    
+    // Online Data #7 - PWM 오류 정보
+    PUT_MBOX_UINT16(mbox_array[mbox_num +1], 0, protocol.pwm_hw_error);
+    PUT_MBOX_UINT16(mbox_array[mbox_num +1], 2, protocol.pwm_sw_error1);
+    PUT_MBOX_UINT16(mbox_array[mbox_num +1], 4, protocol.pwm_sw_error2);
+    PUT_MBOX_UINT16(mbox_array[mbox_num +1], 6, protocol.pwm_sw_warning);
+    
+    // Online Data #8 - DC/DC 오류 정보
+    PUT_MBOX_UINT16(mbox_array[mbox_num], 0, protocol.dcdc_hw_error);
+    PUT_MBOX_UINT16(mbox_array[mbox_num], 2, protocol.dcdc_sw_error1);
+    PUT_MBOX_UINT16(mbox_array[mbox_num], 4, protocol.dcdc_sw_error2);
+    PUT_MBOX_UINT16(mbox_array[mbox_num], 6, protocol.dcdc_sw_warning);
+    
+    // 2. 이전 전송 완료 플래그 클리어
+    ECanaRegs.CANTA.all = mbox_mask;
+    
+    // 3. 한꺼번에 송신 요청
+    ECanaRegs.CANTRS.all = mbox_mask;
+    
+    // 4. 전송 완료 대기 중에 피드백 값 업데이트 (최적화)
+    UpdateCANFeedbackValues();
+    
+    // 5. 모든 전송 완료 대기 (타임아웃 포함)
+    wait_count = 0;
+    while((ECanaRegs.CANTA.all & mbox_mask) != mbox_mask) {
+        wait_count++;
+        if(wait_count > 1000) break;  // 타임아웃
     }
     
-    // 인덱스별 메시지 구성
-    switch (index) {
-        case 0: // 0xXX0100/0xXX0110 - Online Data #1
-            data[0] = protocol.channel;                           // 채널 번호
-            CanPutUint16(data, 1, protocol.cmd_step);           // 스텝 번호
-            data[3] = protocol.status;                            // 동작 상태
-            data[4] = protocol.mode;                              // 운전 모드
-            data[5] = protocol.state_bits.all;                    // 상태 비트
-            CanPutUint16(data, 6, protocol.event_code);         // 알람/이벤트 코드
-            break;
-            
-        case 1: // 0xXX0101/0xXX0111 - Online Data #2
-            CanPutUint16(data, 0, (Uint16)protocol.fb_t1_temp); // T1 온도 (16비트 정수)
-            CanPutUint16(data, 2, (Uint16)protocol.fb_t2_temp); // T2 온도 (16비트 정수)
-            CanPutFloat32(data, 4, protocol.fb_voltage);        // 전압 (float)
-            break;
-            
-        case 2: // 0xXX0102/0xXX0112 - Online Data #3
-            // 전류 (float)
-            CanPutFloat32(data, 0, protocol.fb_current);
-            // CV 타임 (32비트 정수, 1 = 10ms)
-            CanPutUint32(data, 4, protocol.fb_cv_time);
-            break;
-            
-        case 3: // 0xXX0103/0xXX0113 - Online Data #4
-            // 충전 Ah (float)
-            CanPutFloat32(data, 0, protocol.fb_charge_ah);
-            // 방전 Ah (float)
-            CanPutFloat32(data, 4, protocol.fb_discharge_ah);
-            break;
-            
-        case 4: // 0xXX0104/0xXX0114 - Online Data #5
-            // 충전 Wh (float)
-            CanPutFloat32(data, 0, protocol.fb_charge_wh);
-            // 방전 Wh (float)
-            CanPutFloat32(data, 4, protocol.fb_discharge_wh);
-            break;
-            
-        case 5: // 0xXX0105/0xXX0115 - Online Data #6
-            // 운전 시간 (32비트 정수, 1 = 10ms)
-            CanPutUint32(data, 0, protocol.fb_operation_time);
-            // Reserved
-            break;
-            
-        case 6: // 0xXX0106/0xXX0116 - Online Data #7
-            // PWM 오류 정보
-            CanPutUint16(data, 0, protocol.pwm_hw_error);
-            CanPutUint16(data, 2, protocol.pwm_sw_error1);
-            CanPutUint16(data, 4, protocol.pwm_sw_error2);
-            CanPutUint16(data, 6, protocol.pwm_sw_warning);
-            break;
-            
-        case 7: // 0xXX0107/0xXX0117 - Online Data #8
-            // DC/DC 오류 정보
-            CanPutUint16(data, 0, protocol.dcdc_hw_error);
-            CanPutUint16(data, 2, protocol.dcdc_sw_error1);
-            CanPutUint16(data, 4, protocol.dcdc_sw_error2);
-            CanPutUint16(data, 6, protocol.dcdc_sw_warning);
-            break;
-            
-        default:
-            // 알 수 없는 인덱스
-            return;
-    }
-    
-    // 메시지 전송
-    SendCANMessage(id, data);
+    // 6. 전송 완료 플래그 클리어
+    ECanaRegs.CANTA.all = mbox_mask;
 }
 
 /**
- * 종료 보고 전송 함수
- * 모듈 종료 시 종합적인 상태 정보를 보고하는 CAN 메시지 전송
+ * 종료 보고 전송 함수 (순차 전송 버전)
+ * 모듈 종료 시 종합적인 상태 정보를 MBOX18~23에 순서대로 전송
+ * 130번대 메시지 6개 전송
  */
-void SendEndReport(void) {
-    Uint8 data[8];
-    Uint16 i;
-    Uint32 id;
-    
-    // 총 6개 메시지 전송 (0xXX0130~0xXX0135)
-    for (i = 0; i < 6; i++) {
-        // 메시지 데이터 초기화
-        memset(data, 0, sizeof(data));
-        
-        // 기본 ID 설정 (0xXX0130 ~ 0xXX0135)
-        id = 0x00000130 | ((protocol.channel & 0xFF) << 8) | i;
-        
-        switch (i) {
-            case 0: // 0xXX0130 - Step End Data #1
-                data[0] = protocol.channel & 0xFF;                 // 채널 번호
-                CanPutUint16(data, 1, protocol.cmd_step);        // 스텝 번호
-                data[3] = protocol.status;                         // 동작 상태
-                data[4] = protocol.mode;                           // 운전 모드
-                CanPutUint16(data, 5, protocol.event_code);      // 알람/이벤트 코드
-                data[7] = protocol.pattern_index;                  // Pattern Index No
-                break;
-                
-            case 1: // 0xXX0131 - Step End Data #2
-                CanPutUint16(data, 0, protocol.fb_t1_temp * 10); // T1 온도 (x10 스케일)
-                CanPutUint16(data, 2, protocol.fb_t2_temp * 10); // T2 온도 (x10 스케일)
-                CanPutFloat32(data, 4, protocol.fb_voltage);      // 전압
-                break;
-                
-            case 2: // 0xXX0132 - Step End Data #3
-                CanPutFloat32(data, 0, protocol.fb_current);      // 전류
-                CanPutUint32(data, 4, protocol.fb_cv_time * 100); // CV 타임 (10ms 단위)
-                break;
-                
-            case 3: // 0xXX0133 - Step End Data #4
-                CanPutFloat32(data, 0, protocol.fb_charge_ah);    // 충전 Ah
-                CanPutFloat32(data, 4, protocol.fb_discharge_ah); // 방전 Ah
-                break;
-                
-            case 4: // 0xXX0134 - Step End Data #5
-                CanPutFloat32(data, 0, protocol.fb_charge_wh);    // 충전 Wh
-                CanPutFloat32(data, 4, protocol.fb_discharge_wh); // 방전 Wh
-                break;
-                
-            case 5: // 0xXX0135 - Step End Data #6
-                CanPutUint32(data, 0, protocol.fb_operation_time * 100); // 운전 시간 (10ms 단위)
-                CanPutUint32(data, 4, protocol.pattern_index);           // Pattern Index
-                break;
-        }
-        
-        // CAN 메시지 전송
-        SendCANMessage(id, data);
+void SendCANEndReport(Uint32 mbox_num) {
+    Uint32 i;
+    Uint32 wait_count;
+    // mbox_num=18일 때: MBOX18~23 (6개) 마스크 생성
+    // 마스크 = 0x00FC0000 (비트 18~23)
+    static Uint32 mbox_mask = 0;
+    for(i = 0; i < 6; i++) {
+        mbox_mask |= ((Uint32)1 << (mbox_num + i));
     }
+    
+    // 1. 6개 메시지 데이터 구성 (한 번에 모든 데이터 준비)
+    
+    // Step End Data #1 - 기본 상태 정보
+    PUT_MBOX_BYTE(mbox_array[mbox_num + 5], 0, protocol.channel);
+    PUT_MBOX_UINT16(mbox_array[mbox_num + 5], 1, protocol.cmd_step);
+    PUT_MBOX_BYTE(mbox_array[mbox_num + 5], 3, protocol.status);
+    PUT_MBOX_BYTE(mbox_array[mbox_num + 5], 4, protocol.mode);
+    PUT_MBOX_UINT16(mbox_array[mbox_num + 5], 5, protocol.event_code);
+    PUT_MBOX_BYTE(mbox_array[mbox_num + 5], 7, protocol.pattern_index);
+    
+    // Step End Data #2 - 온도 및 전압
+    PUT_MBOX_INT16(mbox_array[mbox_num + 4], 0, protocol.fb_t1_temp);
+    PUT_MBOX_INT16(mbox_array[mbox_num + 4], 2, protocol.fb_t2_temp);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 4], 4, protocol.fb_voltage);
+    
+    // Step End Data #3 - 전류 및 CV 시간
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 3], 0, protocol.fb_current);
+    PUT_MBOX_UINT32(mbox_array[mbox_num + 3], 4, protocol.fb_cv_time);
+    
+    // Step End Data #4 - 충방전 Ah
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 2], 0, protocol.fb_charge_ah);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 2], 4, protocol.fb_discharge_ah);
+    
+    // Step End Data #5 - 충방전 Wh
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 1], 0, protocol.fb_charge_wh);
+    PUT_MBOX_FLOAT(mbox_array[mbox_num + 1], 4, protocol.fb_discharge_wh);
+    
+    // Step End Data #6 - 운전 시간 및 Pattern Index
+    PUT_MBOX_UINT32(mbox_array[mbox_num], 0, protocol.fb_operation_time);
+    PUT_MBOX_UINT32(mbox_array[mbox_num], 4, protocol.pattern_index);
+    
+    // 2. 이전 전송 완료 플래그 클리어
+    ECanaRegs.CANTA.all = mbox_mask;
+    
+    // 3. 한꺼번에 송신 요청 (mbox_mask 사용)
+    ECanaRegs.CANTRS.all = mbox_mask;
+    
+    // 4. 모든 전송 완료 대기 (타임아웃 포함)
+    wait_count = 0;
+    while((ECanaRegs.CANTA.all & mbox_mask) != mbox_mask) {
+        wait_count++;
+        if(wait_count > 10000) break;  // 타임아웃
+    }
+    
+    // 5. 전송 완료 플래그 클리어
+    ECanaRegs.CANTA.all = mbox_mask;
 }
 
-// 주기적 태스크 함수
-void PeriodicTask(void)
-{
-    static Uint16 can_report_timer = 0;
-    static Uint16 report_index = 0;
-    CAN_MESSAGE can_msg;
-    Uint16 threshold;  // 변수 선언을 함수 시작 부분으로 이동
-    
-    // 피드백 값 업데이트 (전압, 전류, 온도 등)
-    UpdateFeedbackValues();
-    
-    // 운전 시간 업데이트
-    UpdateOperationTime();
-    
-    // CV 시간 업데이트
-    UpdateCVTime();
-    
-    // 용량 값 업데이트 (Ah, Wh)
-    UpdateCapacityValues();
-    
-    // HeartBit 타임아웃 체크 추가
-    CheckHeartBitTimeout();
-    
-    // 보고 주기 카운터 증가
-    can_report_timer++;
-    
-    // 현재 상태에 따라 카운터 임계값 설정
-    threshold = (module_state == STATE_RUNNING) ? 1 : 10;  // 운전 중 1(10ms), 대기 중 10(100ms)
-    
-    // 임계값에 도달하면 메시지 전송
-    if (can_report_timer >= threshold) {
-        SendReport(report_index);
-        
-        // 다음 보고 인덱스로 이동
-        report_index++;
-        if (report_index >= 8) {
-            report_index = 0;
-        }
-        
-        // 카운터 리셋
-        can_report_timer = 0;
-    }
-}
-
-// 피드백 값 업데이트 함수
-void UpdateFeedbackValues(void) {
+/**
+ * 모든 피드백 값을 한 번에 업데이트하는 통합 함수
+ * 데이터 일관성을 위해 원자적으로 처리
+ */
+void UpdateCANFeedbackValues(void) {
     extern float32 Vo;      // 전압 (V)
     extern float32 Io_avg;  // 전류 (A)
     extern float32 t1_value; // 온도1 (°C)
     extern float32 In_Temp;  // 35kW 프로그램의 온도 값 (°C)
+    static Uint16 operation_tick_counter = 0;
+    static Uint16 cv_tick_counter = 0;
+    static Uint16 capacity_tick_counter = 0;
+    float32 delta_capacity;
     
-    // 프로토콜 구조체의 피드백 값들은 float32 타입으로 정의되어 있음
-    // 단위 변환: V -> mV, A -> mA, °C -> 0.1°C
+    // 1. 기본 피드백 값 업데이트 (단위 변환: V->mV, A->mA, °C->0.1°C)
     protocol.fb_voltage = Vo * 1000.0f;       // V -> mV 변환
     protocol.fb_current = Io_avg * 1000.0f;   // A -> mA 변환
-    
-    // 35kW 프로그램의 In_Temp 값을 protocol.fb_t1_temp에 반영
     protocol.fb_t1_temp = In_Temp * 10.0f;    // °C -> 0.1°C 변환
-}
-
-// 운전 시간 업데이트 함수
-void UpdateOperationTime(void) {
-    static Uint16 tick_counter = 0;
     
-    // 운전 중일 때만 시간 증가
+    // 2. 운전 시간 업데이트 (운전 중일 때만)
     if (protocol.status == OPERATING) {
-        tick_counter++;
-        
-        // 1초마다 운전 시간 증가 (10ms 단위)
-        if (tick_counter >= 100) { // 10ms * 100 = 1초
-            tick_counter = 0;
+        operation_tick_counter++;
+        if (operation_tick_counter >= 100) { // 1초마다 (10ms * 100 = 1초)
+            operation_tick_counter = 0;
             protocol.fb_operation_time++;  // 10ms 단위로 저장
         }
     }
-}
-
-// CV 시간 업데이트 함수
-void UpdateCVTime(void) {
-    static Uint16 tick_counter = 0;
     
-    // 운전 중일 때만 시간 업데이트
+    // 3. CV 시간 업데이트 (운전 중이고 CV 조건일 때)
     if (protocol.status == OPERATING) {
-        tick_counter++;
-        
-        // 10ms마다 CV 시간 업데이트
-        if (tick_counter >= 1) {  // 10ms = 1 tick
-            tick_counter = 0;
+        cv_tick_counter++;
+        if (cv_tick_counter >= 1) {  // 10ms마다
+            cv_tick_counter = 0;
             
-            // CV 모드 체크 (CC 모드이거나 CV 모드일 때)
-            if (protocol.cmd_mode == MODE_CC || protocol.cmd_mode == MODE_CV) {
-                // 전압이 설정값에 도달했는지 확인 (단위 변환: mV -> V)
-                if (protocol.fb_voltage >= protocol.cmd_voltage) {
-                    protocol.fb_cv_time++;
-                }
+            // CV 모드 체크 (전압이 설정값에 도달했는지 확인)
+            if ((protocol.cmd_mode == MODE_CC || protocol.cmd_mode == MODE_CV) &&
+                (protocol.fb_voltage >= protocol.cmd_voltage)) {
+                protocol.fb_cv_time++;
             }
         }
     }
-}
-
-// 용량 값 업데이트 함수
-void UpdateCapacityValues(void) {
-    static Uint16 tick_counter = 0;
-    extern float32 Io_avg;  // 전류 (A)
-    float32 delta_capacity;  // 변수 선언을 함수 시작 부분으로 이동
     
-    // 운전 중일 때만 용량 업데이트
+    // 4. 용량 값 업데이트 (운전 중일 때만)
     if (protocol.status == OPERATING) {
-        tick_counter++;
-        
-        // 1초마다 용량 업데이트 (10ms 단위)
-        if (tick_counter >= 100) {
-            tick_counter = 0;
+        capacity_tick_counter++;
+        if (capacity_tick_counter >= 100) { // 1초마다
+            capacity_tick_counter = 0;
             
             // 전류값을 Ah로 변환 (A -> mAh)
-            delta_capacity = (Io_avg * 1000.0f) / 3600.0f;  // A -> mA, 1시간 = 3600초
+            delta_capacity = Io_avg * 0.2777778f;  // A -> mAh, 1000/3600 = 0.2777778
             
             // 충방전 용량 업데이트
             if (delta_capacity > 0) {
@@ -555,15 +475,99 @@ void UpdateCapacityValues(void) {
             } else {
                 protocol.fb_discharge_ah += -delta_capacity;  // mAh 단위로 누적
             }
+            
+            // Wh 계산 (P = V * I)
+            float32 power_w = protocol.fb_voltage * 0.001f * Io_avg;  // W (mV -> V 변환)
+            float32 delta_wh = power_w * 0.0002777778f;  // Wh (1/3600 = 0.0002777778)
+            
+            if (delta_wh > 0) {
+                protocol.fb_charge_wh += delta_wh;
+            } else {
+                protocol.fb_discharge_wh += -delta_wh;
+            }
         }
     }
+}
+
+/**
+ * 메일박스 채널 정보 설정 함수
+ * MODULE_CHANNEL을 MSGID의 비트 16~23에 설정
+ * @param start_mbox 시작 메일박스 번호
+ * @param count 설정할 메일박스 개수
+ */
+void SetMBOXChannels(Uint16 start_mbox, Uint16 count) {
+    Uint32 i;
+    
+    EALLOW;
+    
+    // 쉐도우 레지스터를 실제 레지스터와 동기화
+    ECanaShadow.CANME.all = ECanaRegs.CANME.all;
+    
+    for(i = 0; i < count; i++) {
+        Uint32 mailbox = start_mbox + i;
+        
+        // 메일박스 비활성화
+        ECanaShadow.CANME.all &= ~((Uint32)1 << mailbox);
+        ECanaRegs.CANME.all = ECanaShadow.CANME.all;
+                
+        // MODULE_CHANNEL을 비트 16~23에 설정 (상위 8비트)
+        mbox_array[mailbox].MSGID.bit.EXTMSGID_H = MODULE_CHANNEL & 0x03;        // 비트 17:16 (하위 2비트)
+        mbox_array[mailbox].MSGID.bit.STDMSGID = (MODULE_CHANNEL >> 2) & 0x3F;   // 비트 23:18 (상위 6비트)
+        
+        // 메일박스 활성화
+        ECanaShadow.CANME.all |= ((Uint32)1 << mailbox);
+        ECanaRegs.CANME.all = ECanaShadow.CANME.all;
+    }
+    
+    EDIS;
+}
+
+/**
+ * 메일박스 ID 변경 함수
+ * @param base_id 시작 ID (예: 0x100, 0x110, 0x130)
+ * @param start_mbox 시작 메일박스 번호 (예: 16, 18)
+ * @param count 변경할 메일박스 개수 (예: 6, 8)
+ * 
+ * 주의: EXTMSGID_H와 STDMSGID는 변경하지 않음 (채널 정보 유지)
+ *       EXTMSGID_L(16비트)만 변경하여 메시지 ID 설정
+ */
+void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
+    Uint32 i;
+    EALLOW;
+    
+    // 지정된 범위의 메일박스 ID 설정
+    for(i = 0; i < count; i++) {
+        Uint32 mailbox = mbox_num + (count - 1 - i);  // 높은 번호부터 할당
+        Uint16 msg_id = base_id + i;  // base_id부터 순차적으로 증가
+        
+        // 메일박스 비활성화
+        ECanaShadow.CANME.all = ECanaRegs.CANME.all;
+        ECanaShadow.CANME.all &= ~((Uint32)1 << mailbox);
+        ECanaRegs.CANME.all = ECanaShadow.CANME.all;
+        
+        // EXTMSGID_L만 변경 (EXTMSGID_H와 STDMSGID는 채널 정보로 유지)
+        mbox_array[mailbox].MSGID.bit.EXTMSGID_L = msg_id;
+        
+        // 메일박스 활성화
+        ECanaShadow.CANME.all |= ((Uint32)1 << mailbox);
+        ECanaRegs.CANME.all = ECanaShadow.CANME.all;
+    }
+    
+    EDIS;
 }
 
 // 운전 상태로 전환 함수
 void TransitionToRunning(void) {
     extern UNIONFLOAT UI_Iout_command; // 전류 지령 값 (A 단위)
+    extern float32 Icom_temp; // 전류 지령 값 (A 단위)
     extern float32 V_com; // 전압 지령 값 (V 단위)
     extern float32 Power; // 파워 지령 값 (W 단위)
+    extern float32 Voh_com, Vol_com; // 배터리 모드 전압 제한값
+    extern Uint16 can_report_interval; // CAN 보고 간격
+    
+    // 하드웨어 제어 변수 설정
+    Buck_EN = 1;
+    Run = 1;
     
     // 상태 변경
     module_state = STATE_RUNNING;
@@ -583,20 +587,37 @@ void TransitionToRunning(void) {
     // 운전 모드 설정
     protocol.mode = protocol.cmd_mode;
     
-    // 단위 변환: mV -> V, mA -> A, mW -> W
+    // CAN 보고 메시지 ID를 운전 모드로 변경 (MBOX23=0x100, MBOX22=0x101, ..., MBOX16=0x107)
+    ChangeMBOXIDs(0x100, 16, 8);
+    
+    // 단위 변환: mV -> V, mA -> A, mW -> W (곱셈 최적화)
     // 전류 지령 설정 (외부 변수에 저장)
-    UI_Iout_command.fValue = protocol.cmd_current / 1000.0f; // mA -> A 변환
+    Icom_temp = protocol.cmd_current * 0.001f; // mA -> A 변환
     
     // 전압 지령 설정 (필요한 경우)
-    V_com = protocol.cmd_voltage / 1000.0f; // mV -> V 변환
+    V_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
     
     // 파워 지령 설정 (필요한 경우)
-    Power = protocol.cmd_power / 1000.0f; // mW -> W 변환
+    Power = protocol.cmd_power * 0.001f; // mW -> W 변환
+    
+    // 배터리 모드 전압 목표값 설정 (부호 반전 방식)
+    if (protocol.cmd_mode == MODE_CC_CV || protocol.cmd_mode == MODE_CP_CV) {
+        Voh_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
+        Vol_com = -protocol.cmd_voltage * 0.001f; // mV -> V 변환
+    }
+    
+    // CAN 보고 간격 설정 (운전 상태: 10ms 간격 = 200 * 0.05ms, 20kHz 주기)
+    can_report_interval = 200;
 }
 
 // 대기 상태로 전환 함수
 void TransitionToIdle(void) {
     extern UNIONFLOAT UI_Iout_command; // 전류 지령 값
+    extern Uint16 can_report_interval; // CAN 보고 간격
+    
+    // 하드웨어 제어 변수 설정
+    Buck_EN = 0;
+    Run = 0;
     
     // 전류 지령 0으로 설정
     UI_Iout_command.fValue = 0.0f;
@@ -605,51 +626,24 @@ void TransitionToIdle(void) {
     module_state = STATE_IDLE;
     protocol.status = READY;
     
-    // 종료 보고 전송
-    SendEndReport();
-}
+    // 종료 보고용 메일박스 활성화 (MBOX18~23, 6개)
+    SetMBOXChannels(18, 6);
+    
+    // 종료 메시지 ID 설정 (MBOX23=0x130, MBOX22=0x131, ..., MBOX18=0x135)
+    ChangeMBOXIDs(0x130, 18, 6);
+    
+    // 종료 보고 전송 (130번대 메시지는 별도 함수로 처리)
+    SendCANEndReport(18);
 
-// CAN 메시지 처리 함수
-void ProcessCanMessage(const CAN_MESSAGE* msg)
-{
-    Uint8 data[8];
-    Uint16 i;
-    Uint16 command_id;
-    
-    // 데이터 복사
-    for(i = 0; i < 8; i++)
-    {
-        data[i] = msg->data[i];
-    }
-    
-    // 명령 ID 추출
-    command_id = (Uint16)msg->id & 0xFFFF;
-    
-    // 210번 제어 명령인지 확인 (0x0210)
-    if((command_id & 0xFFFF) == 0x0210)
-    {
-        // 210번 제어 명령 처리
-        ProcessCommand(command_id);
-    }
-    // 210번을 제외한 모든 200번대 명령 처리 (200~209, 250~254, 260~261)
-    else if((command_id & 0xFF00) == 0x0200)
-    {
-        // 명령 저장 및 ACK 전송
-        SaveCommand(command_id);
-    }
-    // Heart Bit 메시지(0x360)인지 확인
-    else if(msg->id == 0x360) {
-        
-        // 타임아웃 카운터 리셋
-        can_360_timeout_counter = 0;
-        can_360_timeout_flag = 0;
-        
-        return; // Heart Bit 메시지 처리 완료
-    }
+    // CAN 보고 메시지 ID를 대기 모드로 변경 (MBOX23~16에 0x110~0x117)
+    ChangeMBOXIDs(0x110, 16, 8);
+
+    // CAN 보고 간격 설정 (대기 상태: 100ms 간격 = 2000 * 0.05ms, 20kHz 주기)
+    can_report_interval = 2000;
 }
 
 // Heart Bit 타임아웃 체크 함수
-void CheckHeartBitTimeout(void)
+void CheckCANHeartBitTimeout(void)
 {
     // 1ms마다 호출된다고 가정
     can_360_timeout_counter++;
@@ -670,9 +664,4 @@ void CheckHeartBitTimeout(void)
             protocol.status = PAUSE;
         }
     }
-}
-
-void SendCANMessage(Uint32 id, Uint8 *data)
-{
-    // 빈 함수 - 구현 생략
 }
