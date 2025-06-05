@@ -1,414 +1,363 @@
-#include "sicDCDC35kw_setting.h"
+//=============================================================================
+// 35kW DC-DC Converter Hardware Initialization
+// File: sicDCDC35kw_setting.c
+// 하드웨어 초기화 함수 모음 (PWM, ADC, GPIO, SPI, SCI, CAN)
+//=============================================================================
 
 #include "DSP28x_Project.h"     // Device Headerfile and Examples Include File
 #include "modbus.h"
+#include "sicDCDC35kw_setting.h"
 
-void InitEPwm1Example() //PWM1 is reserved for 2nd year design (only 3-phase interleaved)
-{
-    EPwm1Regs.TBPRD = PWM_PERIOD_10k;                  // Set timer period
-    EPwm1Regs.TBCTR = 0x0000;                      // Clear counter
-    EPwm1Regs.TBPHS.half.TBPHS = 0x0000;           // Phase is 0
+//=============================================================================
+// GPIO 디지털 입력 변수 정의
+//=============================================================================
+Uint16 Board_ID = 0;                    // DIP 스위치로부터 읽은 보드 ID (4비트)
+Uint16 power_switch = 0;               // 전원 스위치 상태 (GPIO54)
 
-    // Setup TBCLK
-    EPwm1Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN; // Count up-down
-    EPwm1Regs.TBCTL.bit.PHSEN = TB_DISABLE; // Disable phase loading - master module
-    EPwm1Regs.TBCTL.bit.PRDLD = TB_SHADOW;         // Load on shadow mode
-    EPwm1Regs.TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;    // Sync down-stream module
+//=============================================================================
+// PWM 초기화 함수들
+//=============================================================================
 
-    EPwm1Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;       // Clock ratio to SYSCLKOUT
+/**
+ * @brief ePWM1 초기화 - 팬 PWM 제어용 (10kHz)
+ * - 용도: 냉각팬 속도 제어
+ * - 주파수: 10kHz (TBPRD = 4500)
+ * - 모드: UP-DOWN 카운트, 데드타임 적용
+ * - 보호: Trip Zone (TZ1, TZ2) 설정
+ */
+void InitEPwm1() {
+    // 타이머 기본 설정
+    EPwm1Regs.TBPRD = PWM_PERIOD_10k;               // 타이머 주기 설정 (10kHz)
+    EPwm1Regs.TBCTR = 0x0000;                       // 카운터 초기화
+    EPwm1Regs.TBPHS.half.TBPHS = 0x0000;            // 위상 0도
+
+    // 타이머 제어 설정
+    EPwm1Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;  // UP-DOWN 카운트
+    EPwm1Regs.TBCTL.bit.PHSEN = TB_DISABLE;         // 위상 로딩 비활성화 (마스터 모듈)
+    EPwm1Regs.TBCTL.bit.PRDLD = TB_SHADOW;          // Shadow 모드에서 로드
+    EPwm1Regs.TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;     // 동기 신호 설정
+    EPwm1Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;        // 클럭 분주비 1:1
     EPwm1Regs.TBCTL.bit.CLKDIV = TB_DIV1;
 
-    EPwm1Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;    // Load registers every ZERO
+    // 비교값 제어 설정
+    EPwm1Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;     // Shadow 모드
     EPwm1Regs.CMPCTL.bit.SHDWBMODE = CC_SHADOW;
-    EPwm1Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
+    EPwm1Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;   // Zero에서 로드
     EPwm1Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
 
-    // Setup compare
-    EPwm1Regs.CMPA.half.CMPA = DUTY1_INIT;
-    EPwm1Regs.CMPB = PWM_PERIOD_10k;                    //turn-off PWM1B at 1st run
+    // 비교값 설정
+    EPwm1Regs.CMPA.half.CMPA = DUTY1_INIT;          // 초기 듀티 설정
+    EPwm1Regs.CMPB = PWM_PERIOD_10k;                // PWM1B 초기 OFF
 
-    // Set actions - PWM1 is duty NON inverted, due to the buck switches and control PWMs
-    EPwm1Regs.AQCTLA.bit.CAU = AQ_CLEAR;              // ReSet PWM1A on CAU
-    EPwm1Regs.AQCTLA.bit.CAD = AQ_SET;
+    // 액션 설정 (NON-inverted PWM)
+    EPwm1Regs.AQCTLA.bit.CAU = AQ_CLEAR;            // CAU에서 Clear
+    EPwm1Regs.AQCTLA.bit.CAD = AQ_SET;              // CAD에서 Set
+    EPwm1Regs.AQCTLB.bit.CBU = AQ_SET;              // CBU에서 Set
+    EPwm1Regs.AQCTLB.bit.CBD = AQ_CLEAR;            // CBD에서 Clear
 
-    EPwm1Regs.AQCTLB.bit.CBU = AQ_SET;               // Set PWM1B on CBU
-    EPwm1Regs.AQCTLB.bit.CBD = AQ_CLEAR;
+    // 데드타임 설정
+    EPwm1Regs.DBCTL.bit.POLSEL = DB_ACTV_HIC;       // 극성 설정
+    EPwm1Regs.DBCTL.bit.IN_MODE = DBA_ALL;          // 입력 모드
+    EPwm1Regs.DBRED = EPWM_DB;                      // Rising edge 데드타임
+    EPwm1Regs.DBFED = EPWM_DB;                      // Falling edge 데드타임
 
-    EPwm1Regs.DBCTL.bit.POLSEL = DB_ACTV_HIC;
-    EPwm1Regs.DBCTL.bit.IN_MODE = DBA_ALL;
-    EPwm1Regs.DBRED = EPWM_DB;
-    EPwm1Regs.DBFED = EPWM_DB;
-    //EPwm1_DB_Direction = DB_UP;
-
-    //Trip zone config
-    // Enable TZ1 and TZ2 as one shot trip sources
+    // Trip Zone 보호 설정
     EALLOW;
-    EPwm1Regs.TZSEL.bit.OSHT1 = 1;
-    EPwm1Regs.TZSEL.bit.OSHT2 = 1;
-    // What do we want the TZ1 and TZ2 to do?
-    EPwm1Regs.TZCTL.bit.TZA = TZ_FORCE_LO;
-    EPwm1Regs.TZCTL.bit.TZB = TZ_FORCE_LO;
+    EPwm1Regs.TZSEL.bit.OSHT1 = 1;                  // TZ1 One-shot 트립 활성화
+    EPwm1Regs.TZSEL.bit.OSHT2 = 1;                  // TZ2 One-shot 트립 활성화
+    EPwm1Regs.TZCTL.bit.TZA = TZ_FORCE_LO;          // 트립 시 PWM1A LOW
+    EPwm1Regs.TZCTL.bit.TZB = TZ_FORCE_LO;          // 트립 시 PWM1B LOW
     EDIS;
-/*
-    // Interrupt where we will change the Deadband
-    EPwm1Regs.ETSEL.bit.INTSEL = ET_CTR_ZERO;       // Select INT on Zero event
-    EPwm1Regs.ETSEL.bit.INTEN = 1;                // Enable INT
-    EPwm1Regs.ETPS.bit.INTPRD = ET_1ST;           // Generate INT on 3rd event
-*/
 }
 
-void InitEPwm2Example()
-{
-    EPwm2Regs.TBPRD = PWM_PERIOD_100k;                   // Set timer period
-    EPwm2Regs.TBCTR = 0x0000;                       // Clear counter
-    EPwm2Regs.TBPHS.half.TBPHS = 0; // Phase is 0 degree = degree/180*PERIOD (for UP/DOWN mode) respected to PWM1
+/**
+ * @brief ePWM3 초기화 - 시스템 메인 타이머 (100kHz)
+ * - 용도: 100kHz 인터럽트 생성 (시스템 제어 루프)
+ * - 주파수: 100kHz (TBPRD = 899)
+ * - 모드: UP 카운트
+ * - 인터럽트: Period에서 발생
+ */
+void InitEPwm3() {
+    // 타이머 기본 설정
+    EPwm3Regs.TBPRD = PWM_PERIOD_100k - 1;          // 타이머 주기 설정 (100kHz)
+    EPwm3Regs.TBCTR = 0x0000;                       // 카운터 초기화
+    EPwm3Regs.TBPHS.half.TBPHS = 0;                 // 위상 0도
 
-    // Setup TBCLK
-    EPwm2Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;  // Count up-DOWN
-//kcs    EPwm2Regs.TBCTL.bit.PHSEN = TB_ENABLE; // Enable phase loading - slave module
-    EPwm2Regs.TBCTL.bit.PHSEN = TB_DISABLE; // Disable phase loading - master module
+    // 타이머 제어 설정
+    EPwm3Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;      // UP 카운트
+    EPwm3Regs.TBCTL.bit.PHSEN = TB_DISABLE;         // 위상 로딩 비활성화
+    EPwm3Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;        // 클럭 분주비 1:1
+    EPwm3Regs.TBCTL.bit.CLKDIV = TB_DIV1;
+    EPwm3Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE; // 동기 비활성화
 
-    EPwm2Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;        // Clock ratio to SYSCLKOUT
-    EPwm2Regs.TBCTL.bit.CLKDIV = TB_DIV1;           //
-
-    EPwm2Regs.TBCTL.bit.PHSDIR = TB_DOWN;
-    EPwm2Regs.TBCTL.bit.PRDLD = TB_SHADOW;
-//kcs    EPwm2Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_IN;      // sync flow-through
-    EPwm2Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;    // Sync down-stream module
-
-    EPwm2Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;     // Load registers every ZERO
-    EPwm2Regs.CMPCTL.bit.SHDWBMODE = CC_SHADOW;
-    EPwm2Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
-    EPwm2Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
-
-    // Setup compare
-    EPwm2Regs.CMPA.half.CMPA = DUTY2_INIT;
-    EPwm2Regs.CMPB = PWM_PERIOD_100k;                    // turn-off PWM2B at 1st run
-
-    // Set actions, PWM2 is duty NON inverted
-    EPwm2Regs.AQCTLA.bit.CAU = AQ_CLEAR;              // ReSet PWM2A on CAU
-    EPwm2Regs.AQCTLA.bit.CAD = AQ_SET;
-
-    EPwm2Regs.AQCTLB.bit.CBU = AQ_SET;               // ReSet PWM2B on CBU
-    EPwm2Regs.AQCTLB.bit.CBD = AQ_CLEAR;
-
-    EPwm2Regs.DBCTL.bit.POLSEL = DB_ACTV_HIC;
-    EPwm2Regs.DBCTL.bit.IN_MODE = DBA_ALL;
-    EPwm2Regs.DBRED = EPWM_DB;
-    EPwm2Regs.DBFED = EPWM_DB;
-    //EPwm2_DB_Direction = DB_UP;
-
-    //Trip zone config
-    // Enable TZ1 and TZ2 as one shot trip sources
-    EALLOW;
-    EPwm2Regs.TZSEL.bit.OSHT1 = 1;
-    EPwm2Regs.TZSEL.bit.OSHT2 = 1;
-    // What do we want the TZ1 and TZ2 to do?
-    EPwm2Regs.TZCTL.bit.TZA = TZ_FORCE_LO;
-    EPwm2Regs.TZCTL.bit.TZB = TZ_FORCE_LO;
-    EDIS;
-/*kcs
-    // Interrupt where we will modify the deadband
-    EPwm2Regs.ETSEL.bit.INTSEL = ET_CTR_ZERO;        // Select INT on Zero event
-    EPwm2Regs.ETSEL.bit.INTEN = 1;                 // Enable INT
-    EPwm2Regs.ETPS.bit.INTPRD = ET_1ST;            // Generate INT on 1st event
-*/
-}
-void InitEPwm3Example()
-{
-    EPwm3Regs.TBPRD = PWM_PERIOD_100k-1;//1799;//899; //PWM_PERIOD_100k;                    // Set timer period
-    EPwm3Regs.TBCTR = 0x0000;                        // Clear counter
-//kcs    EPwm3Regs.TBPHS.half.TBPHS = 2 * PWM_PERIOD / 3; // Phase is 120 degree = degree/180*PERIOD (for UP/DOWN mode) respected to PWM1
-    EPwm3Regs.TBPHS.half.TBPHS = 0; // Phase is 120 degree = degree/180*PERIOD (for UP/DOWN mode) respected to PWM1
-
-    // Setup TBCLK
-    EPwm3Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;   // Count up-DOWN
-//kcs    EPwm3Regs.TBCTL.bit.PHSEN = TB_ENABLE;           // Enable phase loading
-    EPwm3Regs.TBCTL.bit.PHSEN = TB_DISABLE;           // Enable phase loading
-
-    EPwm3Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;        // Clock ratio to SYSCLKOUT
-    EPwm3Regs.TBCTL.bit.CLKDIV = TB_DIV1;           //
-
-//kcs    EPwm3Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_IN;       // sync flow-through
-    EPwm3Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;       // sync flow-through
-
-    EPwm3Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
+    // 비교값 제어 설정
+    EPwm3Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;     // Shadow 모드
     EPwm3Regs.CMPCTL.bit.SHDWBMODE = CC_SHADOW;
-    EPwm3Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;    // load on CTR=Zero
-    EPwm3Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;    // load on CTR=Zero
+    EPwm3Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;   // Zero에서 로드
+    EPwm3Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
 
-    // Setup compare
-    EPwm3Regs.CMPA.half.CMPA = (PWM_PERIOD_100k-1) * (1 - (float)0.1); //  10% duty, FPGA Chip select
-    EPwm3Regs.CMPB = 0;                    // turn-off PWM3B at 1st run
+    // 비교값 설정 (FPGA Chip Select용)
+    EPwm3Regs.CMPA.half.CMPA = (PWM_PERIOD_100k-1) * 0.9f; // 10% 듀티
+    EPwm3Regs.CMPB = 0;                             // PWM3B OFF
 
-    // Set actions - PWM3 is NON inverted
-    EPwm3Regs.AQCTLA.bit.CAU = AQ_SET;               // ReSet PWM3A on CAU
-    EPwm3Regs.AQCTLA.bit.ZRO = AQ_CLEAR;
+    // 액션 설정 (NON-inverted)
+    EPwm3Regs.AQCTLA.bit.CAU = AQ_SET;              // CAU에서 Set
+    EPwm3Regs.AQCTLA.bit.ZRO = AQ_CLEAR;            // Zero에서 Clear
 
-//    EPwm3Regs.AQCTLB.bit.CBU = AQ_SET;                 // Set PWM3B on CBU
-//    EPwm3Regs.AQCTLB.bit.CBD = AQ_CLEAR;
-
-
-
-
-    // Interrupt where we will change the deadband
-    EPwm3Regs.ETSEL.bit.INTSEL = ET_CTR_PRD;        // Select INT on Prd event
-    EPwm3Regs.ETSEL.bit.INTEN = 1;                  // Enable INT
-    EPwm3Regs.ETPS.bit.INTPRD = ET_1ST;             // Generate INT
+    // 인터럽트 설정 (100kHz 시스템 타이머)
+    EPwm3Regs.ETSEL.bit.INTSEL = ET_CTR_PRD;        // Period에서 인터럽트
+    EPwm3Regs.ETSEL.bit.INTEN = 1;                  // 인터럽트 활성화
+    EPwm3Regs.ETPS.bit.INTPRD = ET_1ST;             // 매 주기마다 인터럽트
 }
 
-void AdcSetup(void)
-{
-    // Configure ADC
+//=============================================================================
+// ADC 및 GPIO 초기화 함수들
+//=============================================================================
+
+/**
+ * @brief ADC 초기화 설정
+ * - SOC0: ADCINB0 (Ch8) - 온도 센서
+ * - SOC1: ADCINB1 (Ch9) - 전류 센서  
+ * - SOC2: ADCINB2 (Ch10) - 전압 센서
+ * - 트리거: EPWM6A SOCA
+ * - 샘플링: 7 ADC 클럭 사이클
+ */
+void AdcSetup(void) {
     EALLOW;
-    AdcRegs.ADCCTL2.bit.ADCNONOVERLAP = 1;    // Enable non-overlap mode
-    AdcRegs.ADCCTL1.bit.INTPULSEPOS = 1; // ADCINT1 trips after AdcResults latching
-    AdcRegs.INTSEL1N2.bit.INT1E = 1;      // Enabled ADCINT1
-    AdcRegs.INTSEL1N2.bit.INT1CONT = 0;      // Disable ADCINT1 Continuous mode
-    AdcRegs.INTSEL1N2.bit.INT1SEL = 0;  // Setup EOC8 to trigger ADCINT1 to fire
+    
+    // ADC 기본 설정
+    AdcRegs.ADCCTL2.bit.ADCNONOVERLAP = 1;          // Non-overlap 모드 활성화
+    AdcRegs.ADCCTL1.bit.INTPULSEPOS = 1;            // AdcResults 래치 후 ADCINT1 트리거
+    
+    // 인터럽트 설정
+    AdcRegs.INTSEL1N2.bit.INT1E = 1;                // ADCINT1 활성화
+    AdcRegs.INTSEL1N2.bit.INT1CONT = 0;             // ADCINT1 연속 모드 비활성화
+    AdcRegs.INTSEL1N2.bit.INT1SEL = 0;              // EOC8에서 ADCINT1 트리거
 
-    //Map the ADC channels
-    //HW pin and header file
-    AdcRegs.ADCSOC0CTL.bit.CHSEL = 8;      // Set SOC0 channel select to ADCINB0
-    AdcRegs.ADCSOC1CTL.bit.CHSEL = 9;      // Set SOC1 channel select to ADCINB1
-    AdcRegs.ADCSOC2CTL.bit.CHSEL = 10;     // Set SOC2 channel select to ADCINB2
+    // ADC 채널 매핑
+    AdcRegs.ADCSOC0CTL.bit.CHSEL = 8;               // SOC0 -> ADCINB0 (온도)
+    AdcRegs.ADCSOC1CTL.bit.CHSEL = 9;               // SOC1 -> ADCINB1 (전류)
+    AdcRegs.ADCSOC2CTL.bit.CHSEL = 10;              // SOC2 -> ADCINB2 (전압)
 
-    //Select the trigger sources
-    AdcRegs.ADCSOC0CTL.bit.TRIGSEL = 0x0F; // Set SOC0 triggered on EPWM6A SOCA for inductor current IL2, due to round-robin SOC0 converts first then SOC1, SOC2
-    AdcRegs.ADCSOC1CTL.bit.TRIGSEL = 0x0F; // Due to round-robin SOC1 is after SOC0
-    AdcRegs.ADCSOC2CTL.bit.TRIGSEL = 0x0F; // Due to round-robin SOC2 is after SOC1
+    // 트리거 소스 선택 (Round-robin: SOC0 -> SOC1 -> SOC2)
+    AdcRegs.ADCSOC0CTL.bit.TRIGSEL = 0x0F;          // EPWM6A SOCA 트리거
+    AdcRegs.ADCSOC1CTL.bit.TRIGSEL = 0x0F;          // Round-robin: SOC0 다음
+    AdcRegs.ADCSOC2CTL.bit.TRIGSEL = 0x0F;          // Round-robin: SOC1 다음
 
-    AdcRegs.ADCSOC0CTL.bit.ACQPS = 6; // Set SOC0 S/H Window to 7 ADC Clock Cycles, (6 ACQPS plus 1)
+    // 샘플 & 홀드 윈도우 설정 (7 ADC 클럭)
+    AdcRegs.ADCSOC0CTL.bit.ACQPS = 6;               // 6 ACQPS + 1 = 7 클럭
     AdcRegs.ADCSOC1CTL.bit.ACQPS = 6;
     AdcRegs.ADCSOC2CTL.bit.ACQPS = 6;
 
     EDIS;
-
 }
 
-void Gpio_select(void)
+/**
+ * @brief GPIO 핀 기능 및 방향 설정
+ * - 디지털 입력: DIP 스위치 4개, 외부 스위치, 센싱 신호 3개
+ * - 디지털 출력: LED 2개, Buck Enable, Discharge, CS 신호들
+ * - Pull-up: DIP 스위치는 비활성화 (외부 풀업 사용)
+ * - Input Qualification: GPIO54에 노이즈 필터 적용
+ */
+void gpio_config(void)
 {
-
     EALLOW;
 
-//kcs    GpioCtrlRegs.GPAMUX1.bit.GPIO4 = 0;   // GPIO for RUN_LED
-//kcs    GpioCtrlRegs.GPAMUX1.bit.GPIO5 = 0;   // GPIO for FLT_LED
+    // 모든 GPIO를 입력으로 설정 후 필요한 것만 출력으로 변경
+    GpioCtrlRegs.GPADIR.all = 0x0000;
+    GpioCtrlRegs.GPBDIR.all = 0x0000;
 
-    GpioCtrlRegs.GPAMUX1.bit.GPIO14 = 0;
-    GpioCtrlRegs.GPAMUX1.bit.GPIO7 = 0;   // GPIO for adc cnv cs
+    // PWM 출력 핀들 설정
+    GpioCtrlRegs.GPADIR.bit.GPIO0 = 1;  // ePWM1A
+    GpioCtrlRegs.GPADIR.bit.GPIO1 = 1;  // ePWM1B  
+    GpioCtrlRegs.GPADIR.bit.GPIO4 = 1;  // ePWM3A
+    GpioCtrlRegs.GPADIR.bit.GPIO5 = 1;  // ePWM3B
 
-    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;   // GPIO for DIP Switch_1
-    GpioCtrlRegs.GPAMUX1.bit.GPIO10 = 0;   // GPIO for DIP Switch_2
-    GpioCtrlRegs.GPBMUX2.bit.GPIO55 = 0;   // GPIO for DIP Switch_3
-    GpioCtrlRegs.GPBMUX1.bit.GPIO41 = 0;   // GPIO for DIP Switch_4
+    // SPI 관련 출력 핀들 설정
+    GpioCtrlRegs.GPADIR.bit.GPIO7 = 1;   // ADC CNV CS (출력)
+    GpioCtrlRegs.GPADIR.bit.GPIO14 = 1;  // EEPROM WP (출력)
 
-    GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0;   // GPIO for External "S" Sensing1
-    GpioCtrlRegs.GPBMUX1.bit.GPIO39 = 0;   // GPIO for External "S" Sensing2
-    GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0;   // GPIO for External "S" Sensing3
-    GpioCtrlRegs.GPBMUX2.bit.GPIO54 = 0;   // GPIO for External Switch
-    GpioCtrlRegs.GPAMUX2.bit.GPIO17 = 0;   // GPIO for BUCK Enable
-    GpioCtrlRegs.GPAMUX2.bit.GPIO19 = 0;   // GPIO for Discharge
-    GpioCtrlRegs.GPBMUX1.bit.GPIO44 = 0;   // GPIO for dac cs
-    GpioCtrlRegs.GPBMUX2.bit.GPIO57 = 0;   // GPIO for debugging LED2
-    GpioCtrlRegs.GPAMUX2.bit.GPIO27 = 0;   // GPIO for debugging LED3
+    // 제어 출력 핀들 설정
+    GpioCtrlRegs.GPADIR.bit.GPIO17 = 1;  // Buck Enable (출력)
+    GpioCtrlRegs.GPADIR.bit.GPIO19 = 1;  // Discharge FET (출력)
+    GpioCtrlRegs.GPADIR.bit.GPIO27 = 1;  // Debug LED3 (출력)
 
-//kcs    GpioCtrlRegs.GPADIR.bit.GPIO4 = 1;   // GPIO for RUN_LED
-//kcs    GpioCtrlRegs.GPADIR.bit.GPIO5 = 1;   // GPIO for FLT_LED
+    // LED 및 센싱 출력 핀들 설정
+    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1;  // 외부 센싱 3 (출력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 1;  // 외부 센싱 2 (DAB_OK) (출력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO44 = 1;  // DAC CS (출력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO57 = 1;  // Debug LED2 (출력)
 
-    GpioCtrlRegs.GPADIR.bit.GPIO14 = 1;   // GPIO for adc cnv cs
-    GpioCtrlRegs.GPADIR.bit.GPIO7 = 1;   // GPIO for adc cnv cs
+    // DIP 스위치 입력 핀들 설정 (기본적으로 입력이므로 방향은 설정 안함)
+    GpioCtrlRegs.GPADIR.bit.GPIO10 = 0;  // DIP Switch_2 (입력)
+    GpioCtrlRegs.GPADIR.bit.GPIO11 = 0;  // DIP Switch_1 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO41 = 0;  // DIP Switch_4 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO53 = 0;  // 외부 센싱 1 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO54 = 0;  // 외부 스위치 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO55 = 0;  // DIP Switch_3 (입력)
 
-    GpioCtrlRegs.GPADIR.bit.GPIO11 = 0;   // GPIO for DIP Switch_1_input
-    GpioCtrlRegs.GPADIR.bit.GPIO10 = 0;   // GPIO for DIP Switch_2_input
-    GpioCtrlRegs.GPBDIR.bit.GPIO55 = 0;   // GPIO for DIP Switch_3_input
-    GpioCtrlRegs.GPBDIR.bit.GPIO41 = 0;   // GPIO for DIP Switch_4_input
+    // GPIO 핀 기능 설정 (MUX = 0: GPIO 모드, MUX = 1: 주변장치 모드)
+    // SPI 관련
+    GpioCtrlRegs.GPAMUX1.bit.GPIO7 = 0;   // ADC CNV CS (GPIO 모드)
+    GpioCtrlRegs.GPAMUX1.bit.GPIO14 = 0;  // EEPROM WP (GPIO 모드)
 
-    GpioCtrlRegs.GPBDIR.bit.GPIO53 = 0;  // GPIO for External "S" Sensing1_input
-    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 0;  // GPIO for External "S" Sensing2_input
-    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 0;  // GPIO for External "S" Sensing3_input
-    GpioCtrlRegs.GPBDIR.bit.GPIO54 = 0;   // GPIO for External Switch_input
-    GpioCtrlRegs.GPADIR.bit.GPIO17 = 1;   // GPIO for BUCK Enable_output
-    GpioCtrlRegs.GPADIR.bit.GPIO19 = 1;   // GPIO for Discharge_output
-    GpioCtrlRegs.GPBDIR.bit.GPIO44 = 1;   // GPIO for dac cs output
-    GpioCtrlRegs.GPBDIR.bit.GPIO57 = 1;   // GPIO for debugging LED2_output
-    GpioCtrlRegs.GPADIR.bit.GPIO27 = 1;   // GPIO for debugging LED3_output
+    // DIP 스위치 (GPIO 모드)
+    GpioCtrlRegs.GPAMUX1.bit.GPIO10 = 0;  // DIP Switch_2
+    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;  // DIP Switch_1
+    GpioCtrlRegs.GPBMUX1.bit.GPIO41 = 0;  // DIP Switch_4
+    GpioCtrlRegs.GPBMUX2.bit.GPIO55 = 0;  // DIP Switch_3
+
+    // 외부 신호 입력 (GPIO 모드)
+    GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0;  // 외부 센싱 1
+    GpioCtrlRegs.GPBMUX1.bit.GPIO39 = 0;  // 외부 센싱 2 (DAB_OK)
+    GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0;  // 외부 센싱 3
+    GpioCtrlRegs.GPBMUX2.bit.GPIO54 = 0;  // 외부 스위치 (Start/Stop)
+
+    // 출력 신호 (GPIO 모드)
+    GpioCtrlRegs.GPAMUX2.bit.GPIO17 = 0;  // Buck Enable
+    GpioCtrlRegs.GPAMUX2.bit.GPIO19 = 0;  // Discharge FET
+    GpioCtrlRegs.GPBMUX1.bit.GPIO44 = 0;  // DAC CS
+    GpioCtrlRegs.GPBMUX2.bit.GPIO57 = 0;  // Debug LED2
+    GpioCtrlRegs.GPAMUX2.bit.GPIO27 = 0;  // Debug LED3
+
+    // PWM Mux 설정 (주변장치 모드)
+    GpioCtrlRegs.GPAMUX1.bit.GPIO0 = 1; // ePWM1A
+    GpioCtrlRegs.GPAMUX1.bit.GPIO1 = 1; // ePWM1B  
+    GpioCtrlRegs.GPAMUX1.bit.GPIO4 = 1; // ePWM3A
+    GpioCtrlRegs.GPAMUX1.bit.GPIO5 = 1; // ePWM3B
 
 
-    GpioCtrlRegs.GPAPUD.bit.GPIO11 = 1; // pullup disable
-    GpioCtrlRegs.GPAPUD.bit.GPIO10 = 1; // pullup disable
-    GpioCtrlRegs.GPBPUD.bit.GPIO55 = 1; // pullup disable
-    GpioCtrlRegs.GPBPUD.bit.GPIO41 = 1; // pullup disable
 
-    // Set input qualifcation period for GPIO54
-    GpioCtrlRegs.GPBCTRL.bit.QUALPRD2 = 0xFF;  // Qual period = SYSCLKOUT/510
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;      // 6 samples
+    // DIP 스위치 핀들 설정 (하드웨어 qualification 적용)
+    GpioCtrlRegs.GPACTRL.bit.QUALPRD0 = 0xFF;   // GPIO0-7 qualification
+    GpioCtrlRegs.GPACTRL.bit.QUALPRD1 = 0xFF;   // GPIO8-15 qualification
+    GpioCtrlRegs.GPBCTRL.bit.QUALPRD1 = 0xFF;   // GPIO40-47 qualification
+    GpioCtrlRegs.GPBCTRL.bit.QUALPRD2 = 0xFF;   // GPIO48-55 qualification
+
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 2;       // DIP Switch_2 (6 sample qualification)
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO11 = 2;       // DIP Switch_1 (6 sample qualification)
+    GpioCtrlRegs.GPBQSEL1.bit.GPIO41 = 2;       // DIP Switch_4 (6 sample qualification)
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;       // Start/Stop Switch (6 sample qualification)
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 2;       // DIP Switch_3 (6 sample qualification)
+
+    // Pull-up 설정 (DIP 스위치들은 외부 풀업 사용으로 비활성화)
+    GpioCtrlRegs.GPAPUD.bit.GPIO10 = 1;         // DIP Switch_2 pull-up 비활성화
+    GpioCtrlRegs.GPAPUD.bit.GPIO11 = 1;         // DIP Switch_1 pull-up 비활성화
+    GpioCtrlRegs.GPBPUD.bit.GPIO41 = 1;         // DIP Switch_4 pull-up 비활성화
+    GpioCtrlRegs.GPBPUD.bit.GPIO55 = 1;         // DIP Switch_3 pull-up 비활성화
+    
+    // Input Qualification 설정 (노이즈 필터링)
+    GpioCtrlRegs.GPBCTRL.bit.QUALPRD2 = 0xFF;   // Qualification 주기 = SYSCLKOUT/510
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;       // GPIO54: 6 샘플 필터링
 
     EDIS;
-
 }
-//SPI-A initialization
-//void spi_init()
-//{
-//    SpiaRegs.SPICCR.all =0x000F;          // Reset on, rising edge, 16-bit char bits
-//    SpiaRegs.SPICTL.all =0x0006;          // Enable master mode, normal phase,
-//                                          // Enable talk, and SPI int disabled.
-//    SpiaRegs.SPIBRR =0x0009;              // SPI baud rate = LSCLK/(SPIBRR+1) = LSCLK/10
-//                                          //               = (90M/4)/10 = 2.2M
-//                                          // 16-bit = 178kHz
-//
-//    SpiaRegs.SPICCR.all =0x009F;          // Relinquish SPI from Reset
-//    SpiaRegs.SPIPRI.bit.FREE = 1;         // Set so breakpoints don't disturb xmission
-//}
 
-void spi_init()
-{
+// GPIO 디지털 입력 읽기 함수 (하드웨어 qualification으로 글리치 제거됨)
+void ReadGpioInputs(void) {
+    // Board ID 읽기 (DIP 스위치 4개를 비트 연산으로 조합)
+    Board_ID = (GpioDataRegs.GPADAT.bit.GPIO11 << 0) |     // DIP Switch_1 (Bit0)
+               (GpioDataRegs.GPADAT.bit.GPIO10 << 1) |     // DIP Switch_2 (Bit1) 
+               (GpioDataRegs.GPBDAT.bit.GPIO55 << 2) |     // DIP Switch_3 (Bit2)
+               (GpioDataRegs.GPBDAT.bit.GPIO41 << 3);      // DIP Switch_4 (Bit3)
+    
+    // Start/Stop 스위치 읽기 (하드웨어에서 이미 필터링된 값)
+    power_switch = GpioDataRegs.GPBDAT.bit.GPIO54;
+}
+
+//=============================================================================
+// SPI 및 SCI 통신 초기화 함수들
+//=============================================================================
+
+/**
+ * @brief SPI-A 초기화 (DAC/ADC 통신용)
+ * - 모드: 마스터, 16비트 데이터
+ * - 클럭: LSPCLK / (SPIBRR + 1) = 90MHz / 8 = 11.25MHz  
+ * - 극성: CPOL=0, CPHA=0 (Mode 0)
+ * - 용도: DAC 제어 및 ADC 데이터 읽기
+ */
+void spi_init() {
+    // SPI 소프트웨어 리셋
     SpiaRegs.SPICCR.bit.SPISWRESET = 0;
-    // CPOL = 0, CPHA = 1
-    SpiaRegs.SPICCR.all = 0x000F;     // Reset on, rising edge, 16-bit char bits
-    SpiaRegs.SPICTL.all = 0x0006;          // Enable master mode, normal phase,
-                                           // Enable talk, and SPI int disabled.
-
-    SpiaRegs.SPICTL.bit.TALK = 1;
-//    SpiaRegs.SPICTL.bit.CLK_PHASE = 1;
-    SpiaRegs.SPIBRR = 0x0007;           // SPI Baud Rate = LSPCLK / (SPIBRR + 1)
-//    SpiaRegs.SPICCR.all =0x009F;          // Relinquish SPI from Reset
-            // 변경레지스터
-    SpiaRegs.SPICTL.bit.SPIINTENA = 0;        // SPI Interrupt disable
-    SpiaRegs.SPICTL.bit.CLK_PHASE = 0; // SPICLK signal delayed by one half-cycle
-
-    //   Uint16  TALK:1;             // 1    Master/Slave Transmit Enable
-//    Uint16  MASTER_SLAVE:1;     // 2    SPI Network Mode Control
-//    Uint16  CLK_PHASE:1;        // 3    SPI Clock Phase
-
-    SpiaRegs.SPICCR.all = 0x00DF;          // Relinquish SPI from Reset
-    SpiaRegs.SPICCR.bit.SPILBK = 0;
-    SpiaRegs.SPICCR.bit.CLKPOLARITY = 0;
-    SpiaRegs.SPIPRI.bit.FREE = 1;   // Set so breakpoints don't disturb xmission
-
+    
+    // SPI 기본 설정 (16비트, Rising edge)
+    SpiaRegs.SPICCR.all = 0x000F;                       // Reset, Rising edge, 16-bit
+    SpiaRegs.SPICTL.all = 0x0006;                       // Master mode, Normal phase
+    
+    // SPI 제어 설정
+    SpiaRegs.SPICTL.bit.TALK = 1;                       // Master/Slave 송신 활성화
+    SpiaRegs.SPICTL.bit.SPIINTENA = 0;                  // SPI 인터럽트 비활성화
+    SpiaRegs.SPICTL.bit.CLK_PHASE = 0;                  // SPICLK 지연 없음
+    
+    // SPI 클럭 설정
+    SpiaRegs.SPIBRR = 0x0007;                           // Baud Rate = LSPCLK / (7+1)
+    
+    // SPI 최종 설정
+    SpiaRegs.SPICCR.all = 0x00DF;                       // Reset 해제
+    SpiaRegs.SPICCR.bit.SPILBK = 0;                     // Loopback 비활성화
+    SpiaRegs.SPICCR.bit.CLKPOLARITY = 0;                // 클럭 극성 설정
+    SpiaRegs.SPIPRI.bit.FREE = 1;                       // 브레이크포인트 방해 방지
+    
+    // SPI 활성화
     SpiaRegs.SPICCR.bit.SPISWRESET = 1;
-
-#if 0
-
-    SpiaRegs.SPICCR.bit.CLKPOLARITY = 0;
-
-    SpiaRegs.SPICCR.bit.SPILBK = 0;
-    SpiaRegs.SPICCR.bit.SPICHAR = 15;
-
-    SpiaRegs.SPICCR.bit.SPISWRESET = 1;
-
-    SpiaRegs.SPIBRR = 0x0003;
-
-    SpiaRegs.SPICTL.bit.SPIINTENA = 0; //인터럽트 비사용
-
-       SpiaRegs.SPICTL.bit.TALK = 1;
-       SpiaRegs.SPICTL.bit.MASTER_SLAVE = 1;
-       SpiaRegs.SPICTL.bit.CLK_PHASE = 0;
-       SpiaRegs.SPICTL.bit.OVERRUNINTENA = 0;
-
-       SpiaRegs.SPIPRI.bit.FREE = 1;
-
-#endif
-
 }
 
-//void spi_init()
-//{
-//    SpiaRegs.SPICCR.bit.SPISWRESET   = 0;        // SPI Software RESET for changing configuration
-//    SpiaRegs.SPICCR.all              = 0x004F;   // Reset on, falling edge, 16-bit char bits
-//    SpiaRegs.SPICTL.all              = 0x0006;   // Enable master mode, normal phase,
-//                                                 // enable talk, and SPI int disabled.
-// // SpiaRegs.SPICCR.bit.CLKPOLARITY  = 0;        // Data is output on rising edge and input on falling edge
-// // SpiaRegs.SPICTL.bit.CLK_PHASE    = 0;        // SPICLK signal is not delayed
-// // SpiaRegs.SPICCR.bit.CLKPOLARITY  = 1;        // Data is output on falling edge and input on rising edge
-// // SpiaRegs.SPICTL.bit.CLK_PHASE    = 0;        // SPICLK signal is not delayed
-// // SpiaRegs.SPICCR.bit.CLKPOLARITY  = 0;        // Data is output on rising edge and input on falling edge
-// // SpiaRegs.SPICTL.bit.CLK_PHASE    = 1;        // SPICLK signal delayed by one half-cycle
-//    SpiaRegs.SPICTL.bit.SPIINTENA    = 1;        // SPI Interrupt Enable
-//    SpiaRegs.SPICTL.bit.CLK_PHASE    = 1;        // SPICLK signal delayed by one half-cycle
-//    SpiaRegs.SPIBRR                  = 5;        // SPI Baud Rate = LSPCLK / (SPIBRR + 1)
-//    SpiaRegs.SPIPRI.bit.FREE         = 1;        // Set so breakpoints don't disturb xmission
-//    SpiaRegs.SPICCR.bit.CLKPOLARITY  = 1;        // Data is output on falling edge and input on rising edge
-//    SpiaRegs.SPICCR.bit.SPISWRESET   = 1;        // SPI Software RESET release
-//}
-
-void spi_fifo_init()
-{
-// Initialize SPI FIFO registers
-    SpiaRegs.SPIFFTX.all = 0xE040; // FIFO transmit: clear TXFIFINT flag, enable FIFO
-    SpiaRegs.SPIFFRX.all = 0x2044; // FIFO receive: interrupts after 4 words, clear RXFIFO flag, enable FIFO
-    SpiaRegs.SPIFFCT.all = 0x0;             // No FIFO transmit delay
-
-//    SpiaRegs.SCIFFTX.all = 0xa000; // FIFO reset
-//    SpiaRegs.SCIFFCT.all = 0x4000; // Clear ABD(Auto baud bit)
+/**
+ * @brief SPI FIFO 초기화
+ * - TX FIFO: 인터럽트 플래그 클리어, FIFO 활성화
+ * - RX FIFO: 4워드 후 인터럽트, FIFO 활성화
+ * - 지연: 없음
+ */
+void spi_fifo_init() {
+    SpiaRegs.SPIFFTX.all = 0xE040;                      // TX FIFO: 클리어 & 활성화
+    SpiaRegs.SPIFFRX.all = 0x2044;                      // RX FIFO: 4워드 인터럽트 & 활성화
+    SpiaRegs.SPIFFCT.all = 0x0;                         // FIFO 송신 지연 없음
 }
 
-void scia_fifo_init(void)
-{
-    SciaRegs.SCIFFTX.all = 0xE040;
-    SciaRegs.SCIFFRX.all = 0x2041;
-    SciaRegs.SCIFFCT.all = 0x0;
-// 28069 아래 셋팅은 안 됨
-//    SciaRegs.SCIFFTX.all = 0xC040;// SCI FIFO Reset, Enhancement Enable, TxFIFO Reset, Clear TxFFINT flag, TxFFIL=00000b;
-//    SciaRegs.SCIFFRX.all = 0x4041;// Clear RxFFOVF flag, RxFIFO Reset, Clear RxFFINT flag, RxFFIL=1
-    SciaRegs.SCIFFCT.all = 0x0;
-
-//    16-level transmit/receive FIFO in F28232 vs 4-level transmit/receive FIFO in F28034
-//    Data-word format has an extra bit to distinguish addresses from data (address bit mode only) in F28034 which is not there in F28232.
- //   정확한 타이밍과 데이터 무결성을 보장하기 위해 에코백 및 ACK/NAK 프로토콜을 구현한 controlSUITE의 예가 있습니다.
- //   device_support/F2837xD/v150/F2837xD_examples_Dual에서 F2837xD_sci_flash_kernels를 살펴보세요.
-    //플래시 커널은 SCI_GetFunction.c에 있는 SCI_GetWordData() 함수의 모든 바이트를 반향합니다.
- //   또한 SCI_GetFunction.c에서 SendNAK(), SendACK(), SCI_Flush() 함수를 볼 수 있다.
-/*
-문자를 전송하는 호스트에 반환된 값을 모니터링하여 데이터 무결성을 보장하는 데 도움이 될 수 있습니다. 당신이 올바른지. 호스트는 다시 전송되는 내용을 모니터링해야 합니다.
-RX/BK 인터럽트 수신 및 활성화를 활성화하려면 SCICTL1.bit.RXENA = 1 및 SCICTL2.bit.RXBKINTENA =1을 구성해야 합니다. 그런 다음 SCIFFRX.bit.RXFFIENA = 1을 구성합니다. SCIFFRX.bit.RXFFIL = 4이므로 FIFO가 가득 찼을 때(최대 4레벨) 인터럽트를 생성합니다.
-한 번에 45바이트를 얻을 수 없습니다. FIFO로는 최대 4바이트만 수신할 수 있습니다. 데이터가 수신되면 모듈은 RXRDY 비트를 설정하고 SCIRXBUF에서 데이터를 읽어야 합니다.
-인터럽트를 구성하지 않고도 SCI에서 데이터를 수신할 수 있습니다.
-RXDY를 폴링하고 SCIRXBUF에서 한 번에 한 바이트씩 읽을 때까지 기다렸다가 모든 데이터를 읽을 때까지 계속할 수 있습니다. 아래 의사코드를 참조하세요...
-for i < 45
-while(SciaRegs.SCIRXST.bit.RXRDY != 1) // 수신 완료 플래그
-data = SCIRXBUF.bit.RXDT; //
-
-
-데이터가 손실되지 않도록 데이터 전송 및 수신 타이밍을 조정해야 할 수도 있습니다. 도움이 되었기를 바랍니다. *
- * */
+/**
+ * @brief SCI-A FIFO 초기화 (RS232/RS485 통신용)
+ * - F28069 전용 설정 (4-level FIFO)
+ * - TX/RX FIFO 활성화
+ */
+void scia_fifo_init(void) {
+    SciaRegs.SCIFFTX.all = 0xE040;                      // TX FIFO 설정
+    SciaRegs.SCIFFRX.all = 0x2041;                      // RX FIFO 설정
+    SciaRegs.SCIFFCT.all = 0x0;                         // FIFO 제어 설정
 }
 
-Uint16     sci_baud_capture = 0;
-void scia_init(void)
-{
-    // Note: Clocks were turned on to the SCIA peripheral
-    // in the InitSysCtrl() function
+Uint16 sci_baud_capture = 0;
 
-    SciaRegs.SCICCR.all = 0x0007;   // 1 stop bit,  No loopback
-                                    // No parity,8 char bits,
-                                    // async mode, idle-line protocol
-    SciaRegs.SCICCR.bit.PARITYENA = 1;// Parity enable
-    SciaRegs.SCICCR.bit.PARITY = 1;   // Even parity
+/**
+ * @brief SCI-A 초기화 (RS232/RS485 Modbus 통신용)
+ * - 설정: 38400bps, 8비트, Even 패리티, 1 정지비트
+ * - 모드: 비동기, Idle-line 프로토콜
+ * - 용도: Modbus RTU 통신
+ */
+void scia_init(void) {
+    // SCI 기본 설정
+    SciaRegs.SCICCR.all = 0x0007;                       // 1 정지비트, 루프백 없음
+                                                        // 8비트 데이터, 비동기 모드
+    SciaRegs.SCICCR.bit.PARITYENA = 1;                  // 패리티 활성화
+    SciaRegs.SCICCR.bit.PARITY = 1;                     // Even 패리티
 
-    SciaRegs.SCICTL1.all = 0x0003;  // enable TX, RX, internal SCICLK,
-                                    // Disable RX ERR, SLEEP, TXWAKE
-//    ScibRegs.SCICTL2.all =0x0003;
-    SciaRegs.SCICTL2.bit.TXINTENA =0;
-    SciaRegs.SCICTL2.bit.RXBKINTENA =0;
+    // SCI 제어 설정
+    SciaRegs.SCICTL1.all = 0x0003;                      // TX, RX 활성화, 내부 SCICLK
+    SciaRegs.SCICTL2.bit.TXINTENA = 0;                  // TX 인터럽트 비활성화
+    SciaRegs.SCICTL2.bit.RXBKINTENA = 0;                // RX 브레이크 인터럽트 비활성화
 
+    // Baud Rate 설정 (38400bps)
     sci_baud_capture = SCIA_PRD;
-    SciaRegs.SCIHBAUD = SCIA_PRD >> 8;  //  @LSPCLK = 22.5MHz.
-    SciaRegs.SCILBAUD = SCIA_PRD & 0xFF;
+    SciaRegs.SCIHBAUD = SCIA_PRD >> 8;                  // High byte
+    SciaRegs.SCILBAUD = SCIA_PRD & 0xFF;                // Low byte
 
-//    ScibRegs.SCICTL1.all =0x0063;  // Relinquish SCI from Reset
-
-    SciaRegs.SCICTL1.bit.SWRESET = 1;
-//    ScibRegs.SCICCR.bit.LOOPBKENA =1; // Enable loop back
-    SciaRegs.SCICTL1.all = 0x0023;     // Relinquish SCI from Reset
-
+    // SCI 활성화
+    SciaRegs.SCICTL1.bit.SWRESET = 1;                   // 소프트웨어 리셋 해제
+    SciaRegs.SCICTL1.all = 0x0023;                      // SCI 리셋 해제 및 활성화
 }
 
 extern struct ECAN_REGS ECanaShadow;
-void eCana_config (void)
-{
-    /* CAN 통신 속도를 500kbps로 설정 */
-    /* SYSCLKOUT = 90MHz, CAN 클럭 = 45MHz (SYSCLKOUT/2) */
-    
+
+void eCana_config (void) {
     EALLOW;
     
     // CAN 모드 설정
@@ -417,314 +366,135 @@ void eCana_config (void)
     ECanaShadow.CANMC.bit.DBO = 0;    // Data Byte Order (0: 표준)
     ECanaShadow.CANMC.bit.PDR = 0;    // Power-down mode request (0: 정상 동작)
     ECanaShadow.CANMC.bit.ABO = 1;    // Auto Bus-On (1: 자동 버스 온)
-    ECanaShadow.CANMC.bit.STM = 0;    // Self-Test Mode (1: 활성화, 송신 메시지가 내부적으로 수신됨)
+    ECanaShadow.CANMC.bit.STM = 0;    // Self-Test Mode (0: 비활성화)
     ECanaRegs.CANMC.all = ECanaShadow.CANMC.all;
     
+    // Configuration Change Request
     ECanaRegs.CANMC.bit.CCR = 1;
     while(ECanaRegs.CANES.bit.CCE != 1) {}
 
     /* CAN 통신 속도를 500kbps로 설정 */
+    /* CAN 클럭 = 45MHz (SYSCLKOUT/2) */
+    /* Time Quantum(Tq) = (BRP + 1) / 45MHz = 5 / 45MHz = 111.11ns */
+    /* Bit Time = (SYNC_SEG + TSEG1 + TSEG2) = (1 + 14 + 3) = 18 Tq */
+    /* 전송 속도 = 45MHz / (5 * 18) = 500kbps */
+    /* 샘플링 포인트 = (SYNC_SEG + TSEG1) / Bit Time * 100% = 15/18 * 100% = 83.33% */
     ECanaRegs.CANBTC.all = 0;
-    ECanaRegs.CANBTC.bit.BRPREG = 4;
-    ECanaRegs.CANBTC.bit.TSEG1REG = 13;
-    ECanaRegs.CANBTC.bit.TSEG2REG = 2;
-    ECanaRegs.CANBTC.bit.SJWREG = 0;
+    ECanaRegs.CANBTC.bit.BRPREG = 4;      // BRP = 4 (실제값 = 5)
+    ECanaRegs.CANBTC.bit.TSEG1REG = 13;   // TSEG1 = 13 (실제값 = 14, Propagation + Phase1)
+    ECanaRegs.CANBTC.bit.TSEG2REG = 2;    // TSEG2 = 2 (실제값 = 3, Phase2)
+    ECanaRegs.CANBTC.bit.SJWREG = 0;      // SJW = 0 (실제값 = 1, Synchronization Jump Width)
 
     ECanaRegs.CANMC.bit.CCR = 0;
     while(ECanaRegs.CANES.bit.CCE != 0) {}
     
-    /* 
-       BitTime = (BRP + 1) * (TSEG1 + 1 + TSEG2 + 1 + 1) / 45MHz
-               = (5 + 1) * (10 + 1 + 2 + 1 + 1) / 45MHz
-               = 6 * 15 / 45MHz = 90 / 45MHz = 2us
-       
-       실제 전송 속도 = 45MHz / (6 * 15) = 500kHz = 500kbps
-    */
-    
     EDIS;
     
+    // 모든 메일박스 비활성화
     ECanaRegs.CANME.all = 0;
-
-    //
-    // Mailboxs can be written to 16-bits or 32-bits at a time
-    // Write to the MSGID field of TRANSMIT mailboxes MBOX0 - 15
-    //
-    //           ECanaMboxes.MBOX0.MSGID.bit.IDE = 1 // 0 = 2.0A 기준 11bit, 1= 2.0B 기준 29bit
-    //  can 설정 참고 https://m.blog.naver.com/cyjrntwkd/70120007780
-
-    ECanaMboxes.MBOX0.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX0.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX0.MSGID.bit.STDMSGID = 0xF0; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX1.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX1.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX1.MSGID.bit.STDMSGID = 0xF0 + 1; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX2.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX2.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX2.MSGID.bit.STDMSGID = 0xF0 + 2; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX3.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX3.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX3.MSGID.bit.STDMSGID = 0xF0 + 3; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX4.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX4.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX4.MSGID.bit.STDMSGID = 0xF0 + 4; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX5.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX5.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX5.MSGID.bit.STDMSGID = 0xF0 + 5; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX6.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX6.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX6.MSGID.bit.STDMSGID = 0xF0 + 6; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX7.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX7.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX7.MSGID.bit.STDMSGID = 0xF0 + 7; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX8.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX8.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX8.MSGID.bit.STDMSGID = 0xF0 + 8; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX9.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX9.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX9.MSGID.bit.STDMSGID = 0xF0 + 9; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
-
-    ECanaMboxes.MBOX10.MSGID.bit.IDE = 0;   // ID 확장 여부 설정 : 11Bit ID 사용
-    ECanaMboxes.MBOX10.MSGID.bit.AAM = 0;   // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX10.MSGID.bit.STDMSGID = 0xF0 + 10; // Mailbox ID 설정 : CAN2.0A 기준 11Bit ID
+    ECanaShadow.CANMD.all = 0;
+    ECanaShadow.CANME.all = 0;
     
-    // MBOX16 설정
-    ECanaMboxes.MBOX16.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX16.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX16.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX16.MSGID.bit.EXTMSGID_L = 0x117;
+    // MD (Message Direction) 설정 - RX 모드
+    ECanaShadow.CANMD.bit.MD1 = 1;   // MBOX1 RX
+    ECanaShadow.CANMD.bit.MD2 = 1;   // MBOX2 RX
+    ECanaShadow.CANMD.bit.MD3 = 1;   // MBOX3 RX
+    ECanaShadow.CANMD.bit.MD4 = 1;   // MBOX4 RX
+    ECanaShadow.CANMD.bit.MD5 = 1;   // MBOX5 RX
+    ECanaShadow.CANMD.bit.MD6 = 1;   // MBOX6 RX
+    ECanaShadow.CANMD.bit.MD7 = 1;   // MBOX7 RX
+    ECanaShadow.CANMD.bit.MD8 = 1;   // MBOX8 RX
+    ECanaShadow.CANMD.bit.MD9 = 1;   // MBOX9 RX
+    ECanaShadow.CANMD.bit.MD29 = 1;  // MBOX29 RX
+    ECanaShadow.CANMD.bit.MD30 = 1;  // MBOX30 RX
+    ECanaShadow.CANMD.bit.MD31 = 1;  // MBOX31 RX
+    
+    // ME (Mailbox Enable) 설정
+    ECanaShadow.CANME.bit.ME16 = 1;  // MBOX16
+    ECanaShadow.CANME.bit.ME17 = 1;  // MBOX17
+    ECanaShadow.CANME.bit.ME18 = 1;  // MBOX18
+    ECanaShadow.CANME.bit.ME19 = 1;  // MBOX19
+    ECanaShadow.CANME.bit.ME20 = 1;  // MBOX20
+    ECanaShadow.CANME.bit.ME21 = 1;  // MBOX21
+    ECanaShadow.CANME.bit.ME22 = 1;  // MBOX22
+    ECanaShadow.CANME.bit.ME23 = 1;  // MBOX23
+    ECanaShadow.CANME.bit.ME24 = 1;  // MBOX24
+    ECanaShadow.CANME.bit.ME25 = 1;  // MBOX25
+    ECanaShadow.CANME.bit.ME29 = 1;  // MBOX29
+    ECanaShadow.CANME.bit.ME30 = 1;  // MBOX30
+    ECanaShadow.CANME.bit.ME31 = 1;  // MBOX31
+    
+    // MSGID 설정 - 11bit ID (MBOX 0~9)
+    ECanaMboxes.MBOX0.MSGID.bit.IDE = 0; ECanaMboxes.MBOX0.MSGID.bit.STDMSGID = 0xF0;
+    ECanaMboxes.MBOX1.MSGID.bit.IDE = 0; ECanaMboxes.MBOX1.MSGID.bit.STDMSGID = 0xF1;
+    ECanaMboxes.MBOX2.MSGID.bit.IDE = 0; ECanaMboxes.MBOX2.MSGID.bit.STDMSGID = 0xF2;
+    ECanaMboxes.MBOX3.MSGID.bit.IDE = 0; ECanaMboxes.MBOX3.MSGID.bit.STDMSGID = 0xF3;
+    ECanaMboxes.MBOX4.MSGID.bit.IDE = 0; ECanaMboxes.MBOX4.MSGID.bit.STDMSGID = 0xF4;
+    ECanaMboxes.MBOX5.MSGID.bit.IDE = 0; ECanaMboxes.MBOX5.MSGID.bit.STDMSGID = 0xF5;
+    ECanaMboxes.MBOX6.MSGID.bit.IDE = 0; ECanaMboxes.MBOX6.MSGID.bit.STDMSGID = 0xF6;
+    ECanaMboxes.MBOX7.MSGID.bit.IDE = 0; ECanaMboxes.MBOX7.MSGID.bit.STDMSGID = 0xF7;
+    ECanaMboxes.MBOX8.MSGID.bit.IDE = 0; ECanaMboxes.MBOX8.MSGID.bit.STDMSGID = 0xF8;
+    ECanaMboxes.MBOX9.MSGID.bit.IDE = 0; ECanaMboxes.MBOX9.MSGID.bit.STDMSGID = 0xF9;
+    
+    // MSGID 설정 - 29bit ID (MBOX 16~31)
+    ECanaMboxes.MBOX16.MSGID.bit.IDE = 1; ECanaMboxes.MBOX16.MSGID.bit.EXTMSGID_L = 0x117;
+    ECanaMboxes.MBOX17.MSGID.bit.IDE = 1; ECanaMboxes.MBOX17.MSGID.bit.EXTMSGID_L = 0x116;
+    ECanaMboxes.MBOX18.MSGID.bit.IDE = 1; ECanaMboxes.MBOX18.MSGID.bit.EXTMSGID_L = 0x115;
+    ECanaMboxes.MBOX19.MSGID.bit.IDE = 1; ECanaMboxes.MBOX19.MSGID.bit.EXTMSGID_L = 0x114;
+    ECanaMboxes.MBOX20.MSGID.bit.IDE = 1; ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x113;
+    ECanaMboxes.MBOX21.MSGID.bit.IDE = 1; ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x112;
+    ECanaMboxes.MBOX22.MSGID.bit.IDE = 1; ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x111;
+    ECanaMboxes.MBOX23.MSGID.bit.IDE = 1; ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x110;
+    ECanaMboxes.MBOX24.MSGID.bit.IDE = 1; ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x2200;
+    ECanaMboxes.MBOX25.MSGID.bit.IDE = 1; ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x2201;
+    ECanaMboxes.MBOX29.MSGID.bit.IDE = 1; ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x360;
+    ECanaMboxes.MBOX30.MSGID.bit.IDE = 1; ECanaMboxes.MBOX30.MSGID.bit.EXTMSGID_L = 0x200;
+    ECanaMboxes.MBOX31.MSGID.bit.IDE = 1; ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x201;
+    
+    // DLC 설정 - MBOX 0~15: DLC=4
+    ECanaMboxes.MBOX0.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX1.MSGCTRL.bit.DLC = 4;
+    ECanaMboxes.MBOX2.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX3.MSGCTRL.bit.DLC = 4;
+    ECanaMboxes.MBOX4.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX5.MSGCTRL.bit.DLC = 4;
+    ECanaMboxes.MBOX6.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX7.MSGCTRL.bit.DLC = 4;
+    ECanaMboxes.MBOX8.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX9.MSGCTRL.bit.DLC = 4;
+    
+    // DLC 설정 - MBOX 16~31: DLC=8
+    ECanaMboxes.MBOX16.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX17.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX18.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX19.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX20.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX21.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX22.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX23.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX24.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX25.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX29.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX30.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX31.MSGCTRL.bit.DLC = 8;
 
-    // MBOX17 설정
-    ECanaMboxes.MBOX17.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX17.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX17.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX17.MSGID.bit.EXTMSGID_L = 0x116;
-
-    // MBOX18 설정
-    ECanaMboxes.MBOX18.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX18.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX18.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX18.MSGID.bit.EXTMSGID_L = 0x115;
-
-    // MBOX19 설정
-    ECanaMboxes.MBOX19.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX19.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX19.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX19.MSGID.bit.EXTMSGID_L = 0x114;
-
-    // MBOX20 설정
-    ECanaMboxes.MBOX20.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX20.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX20.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x113;
-
-    // MBOX21 설정
-    ECanaMboxes.MBOX21.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX21.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX21.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x112;
-
-    // MBOX22 설정
-    ECanaMboxes.MBOX22.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX22.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX22.MSGID.bit.AAM = 0;     // 응답모드 설정(송신 메일박스만 유효함) : Normal transmit mode
-    ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x111;
-
-    // MBOX23 설정
-    ECanaMboxes.MBOX23.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX23.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX23.MSGID.bit.AME = 0;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x110;
-
-    // MBOX24 설정
-    ECanaMboxes.MBOX24.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX24.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX24.MSGID.bit.AME = 0;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x2200;
-
-    // MBOX25 설정
-    ECanaMboxes.MBOX25.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX25.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX25.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x2201;
-
-    // MBOX26 설정  
-    ECanaMboxes.MBOX26.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX26.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX26.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX26.MSGID.bit.EXTMSGID_L = 0x360;
-    ECanaLAMRegs.LAM26.all = 0;
-    ECanaLAMRegs.LAM26.bit.LAMI = 1;
-    ECanaLAMRegs.LAM26.bit.LAM_L = 0xFF;
-
-    // MBOX27 설정
-    ECanaMboxes.MBOX27.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX27.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX27.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX27.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaLAMRegs.LAM27.all = 0;
-    ECanaLAMRegs.LAM27.bit.LAMI = 1;
-    ECanaLAMRegs.LAM27.bit.LAM_L = 0xFF;
-
-    // MBOX28 설정
-    ECanaMboxes.MBOX28.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX28.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX28.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX28.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaLAMRegs.LAM28.all = 0;
-    ECanaLAMRegs.LAM28.bit.LAMI = 1;
-    ECanaLAMRegs.LAM28.bit.LAM_L = 0xFF;
-
-    // MBOX29 설정
-    ECanaMboxes.MBOX29.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX29.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX29.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaLAMRegs.LAM29.all = 0;
-    ECanaLAMRegs.LAM29.bit.LAMI = 1;
-    ECanaLAMRegs.LAM29.bit.LAM_L = 0xFF;
-
-    // MBOX30 설정
-    ECanaMboxes.MBOX30.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX30.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX30.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX30.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaLAMRegs.LAM30.all = 0;
-    ECanaLAMRegs.LAM30.bit.LAMI = 1;
-    ECanaLAMRegs.LAM30.bit.LAM_L = 0xFE;
-
-    // MBOX31 설정
-    ECanaMboxes.MBOX31.MSGID.all = 0;         // 전체 ID 초기화
-    ECanaMboxes.MBOX31.MSGID.bit.IDE = 1;     // ID 확장 여부 설정 : 29Bit ID 사용
-    ECanaMboxes.MBOX31.MSGID.bit.AME = 1;     // 필터 마스크 활성화 (Acceptance Mask Enable)
-    ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x201;
-    ECanaLAMRegs.LAM31.all = 0;
-    ECanaLAMRegs.LAM31.bit.LAMI = 1;
-    ECanaLAMRegs.LAM31.bit.LAM_L = 0xFE;
-
+    // AME (Acceptance Mask Enable) 설정
+    ECanaMboxes.MBOX30.MSGID.bit.AME = 1;
+    ECanaMboxes.MBOX31.MSGID.bit.AME = 1;
+    
+    // LAM(Local Acceptance Mask) 설정 (MBOX30, MBOX31)
+    ECanaLAMRegs.LAM30.all = 0;    ECanaLAMRegs.LAM30.bit.LAMI = 1;    ECanaLAMRegs.LAM30.bit.LAM_L = 0xFE;
+    ECanaLAMRegs.LAM31.all = 0;    ECanaLAMRegs.LAM31.bit.LAMI = 1;    ECanaLAMRegs.LAM31.bit.LAM_L = 0xFE;
+    
     // 전역 마스크 설정
     ECanaShadow.CANGAM.all = 0;
     ECanaShadow.CANGAM.bit.AMI = 0;           // 전역 마스크 적용 (0: 로컬 마스크 사용)
     ECanaRegs.CANGAM.all = ECanaShadow.CANGAM.all;
 
-    //
-    // Configure Mailboxes 0-15 as Tx, 16-31 as Rx
-    // Since this write is to the entire register (instead of a bit
-    // field) a shadow register is not required.
-    //
-    ECanaRegs.CANMD.all = 0; // 0 : 송신모드, 1 : 수신모드  -> 이 부분 레지스터와 쉐도우 레지스터 공부할것
-    ECanaShadow.CANMD.all = ECanaRegs.CANMD.all;
-
-    ECanaShadow.CANMD.bit.MD0 = 0;     // MailBox 0번 : 송신
-    ECanaShadow.CANMD.bit.MD1 = 1;     // MailBox 1번 : 수신
-    ECanaShadow.CANMD.bit.MD2 = 1;
-    ECanaShadow.CANMD.bit.MD3 = 1;
-    ECanaShadow.CANMD.bit.MD4 = 1;
-    ECanaShadow.CANMD.bit.MD5 = 1;
-    ECanaShadow.CANMD.bit.MD6 = 1;
-    ECanaShadow.CANMD.bit.MD7 = 1;
-    ECanaShadow.CANMD.bit.MD8 = 1;
-    ECanaShadow.CANMD.bit.MD9 = 1;
-    ECanaShadow.CANMD.bit.MD10 = 1;
-
-    ECanaShadow.CANMD.bit.MD16 = 0;
-    ECanaShadow.CANMD.bit.MD17 = 0;
-    ECanaShadow.CANMD.bit.MD18 = 0;
-    ECanaShadow.CANMD.bit.MD19 = 0;
-    ECanaShadow.CANMD.bit.MD20 = 0;
-    ECanaShadow.CANMD.bit.MD21 = 0;
-    ECanaShadow.CANMD.bit.MD22 = 0;
-    ECanaShadow.CANMD.bit.MD23 = 0;
-    ECanaShadow.CANMD.bit.MD24 = 0;
-    ECanaShadow.CANMD.bit.MD25 = 0;
-    ECanaShadow.CANMD.bit.MD26 = 1;
-    ECanaShadow.CANMD.bit.MD27 = 1;
-    ECanaShadow.CANMD.bit.MD28 = 1;
-    ECanaShadow.CANMD.bit.MD29 = 1;
-    ECanaShadow.CANMD.bit.MD30 = 1;
-    ECanaShadow.CANMD.bit.MD31 = 1;
-    
+    // 설정 적용
     ECanaRegs.CANMD.all = ECanaShadow.CANMD.all;
-
-    //
-    // Enable all Mailboxes
-    // Since this write is to the entire register (instead of a bit
-    // field) a shadow register is not required.
-    //
-    // ECanaRegs.CANME.all = 0xFFFFFFFF; // Enable all Mailboxes   // 메일박스 Enable/Disable 설정
-
-    ECanaShadow.CANME.all = ECanaRegs.CANME.all;
-    ECanaShadow.CANME.bit.ME16 = 1;
-    ECanaShadow.CANME.bit.ME17 = 1;
-    ECanaShadow.CANME.bit.ME18 = 1;
-    ECanaShadow.CANME.bit.ME19 = 1;
-    ECanaShadow.CANME.bit.ME20 = 1;
-    ECanaShadow.CANME.bit.ME21 = 1;
-    ECanaShadow.CANME.bit.ME22 = 1;
-    ECanaShadow.CANME.bit.ME23 = 1;
-    ECanaShadow.CANME.bit.ME24 = 1;
-    ECanaShadow.CANME.bit.ME25 = 1;
-    ECanaShadow.CANME.bit.ME26 = 1;
-    ECanaShadow.CANME.bit.ME27 = 0;
-    ECanaShadow.CANME.bit.ME28 = 0;
-    ECanaShadow.CANME.bit.ME29 = 0;
-    ECanaShadow.CANME.bit.ME30 = 1;
-    ECanaShadow.CANME.bit.ME31 = 1;
     ECanaRegs.CANME.all = ECanaShadow.CANME.all;
 
-    //
-    // Specify that 8 bits will be sent/received
-    //
-    ECanaMboxes.MBOX0.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX1.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX2.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX3.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX4.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX5.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX6.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX7.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX8.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX9.MSGCTRL.bit.DLC = 4;
-    ECanaMboxes.MBOX10.MSGCTRL.bit.DLC = 4;
-
-    ECanaMboxes.MBOX16.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX17.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX18.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX19.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX20.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX21.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX22.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX23.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX24.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX25.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX26.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX27.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX28.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX29.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX30.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX31.MSGCTRL.bit.DLC = 8;
-
-    //
-    // Since this write is to the entire register (instead of a bit
-    // field) a shadow register is not required.
-    //
+    // 인터럽트 설정
     EALLOW;
-    ECanaRegs.CANMIM.all = 0x0; // 메일박스 인터럽트 마스크 설정
-
-    // MBOX 25-31 인터럽트 활성화
-    ECanaRegs.CANMIM.bit.MIM30 = 1;
-    ECanaRegs.CANMIM.bit.MIM31 = 1;
-
-    ECanaRegs.CANMIL.bit.MIL30 = 0;    // ECAN0INTA로 할당
-    ECanaRegs.CANMIL.bit.MIL31 = 0;    // ECAN0INTA로 할당
+    ECanaRegs.CANMIM.all = 0x0;           // 모든 메일박스 인터럽트 비활성화
+    
+    // 특정 메일박스 인터럽트 활성화 (MBOX30, MBOX31)
+    ECanaRegs.CANMIM.bit.MIM30 = 1;       // MBOX30 인터럽트 활성화
+    ECanaRegs.CANMIM.bit.MIM31 = 1;       // MBOX31 인터럽트 활성화
+    
+    // 인터럽트 라인 할당 (ECAN0INTA로 할당)
+    ECanaRegs.CANMIL.bit.MIL30 = 0;       // MBOX30을 INT9.5에 할당
+    ECanaRegs.CANMIL.bit.MIL31 = 0;       // MBOX31을 INT9.5에 할당
     
     // 전역 인터럽트 설정
     ECanaRegs.CANGIM.all = 0;
@@ -736,8 +506,5 @@ void eCana_config (void)
     ECanaRegs.CANGIM.bit.WUIM = 0;      // Wake-up 인터럽트 비활성화
     ECanaRegs.CANGIM.bit.BOIM = 0;      // Bus-off 인터럽트 비활성화
 
- //  메일박스 MBOXx 레지스터 의 내용 초기화와 송수신 데이터 크기 설정, 모드 설정을 함.
- //  인터럽트설정 CANMIM, CANMIL, CANGIM 레지스터) 관련 PIE, CPU 인터럽트 라인 설정.
     EDIS;
-
 }

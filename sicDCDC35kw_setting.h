@@ -21,16 +21,20 @@ extern "C" {
 #endif
 #include "DSP28x_Project.h" //for basic variable types
 
+//=============================================================================
+// GPIO 디지털 입력 변수들
+//=============================================================================
+extern Uint16 Board_ID;                    // DIP 스위치로부터 읽은 보드 ID (4비트)
+extern Uint16 power_switch;                // 전원 스위치 상태 (GPIO54)
 
 #define ACTIVE              (1) //only use when a DAC board is inserted
 
 //////////////////////////////////////////////////////////////
 // Prototype statements for functions found within this file.
-void InitEPwm1Example(void);
-void InitEPwm2Example(void);
-void InitEPwm3Example(void);
+void InitEPwm1(void);
+void InitEPwm3(void);
 
-void Gpio_select(void);
+void gpio_config(void);     // GPIO configuration
 void AdcSetup(void);
 
 void spi_fifo_init(void);   // Initialize the Spi FIFO
@@ -38,6 +42,9 @@ void spi_init(void);        // init SPI
 
 void scia_init(void);
 void scia_fifo_init(void);
+
+void ReadGpioInputs(void);  // Read GPIO digital inputs
+void eCana_config(void);    // CAN configuration
 
 
 #define PWM_PERIOD_10k              4500  //(FAN)        // TBPRD = HSCLK/(2*freq) = 90M/(2*10k) = 4500

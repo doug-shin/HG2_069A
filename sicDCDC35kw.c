@@ -1,98 +1,52 @@
 //###########################################################################
+// 35kW DC-DC Converter Control Software
 // 2025.02.26 final 정상 동작 확인
 
-/*
- * HMI와 마스터 보드 RS232 Modbus RTU로 통신한다. 38400bps, 8bit, 1bit, none, HMI에서 100ms polling
- * 마스터 보드에서 계산한 PI 출력 값을 DAC값으로 환산하여 485 통신으로 전송한다(전류지령 전송). 통신속도는 5.625Mbps이고, 0.1ms 마다 한번에 9byte를 전송한다.
- * 마스터 보드와 슬레이브 보드는 프로세서가 같아서 baud 에러율이 없다.
- * 마스터 보드는 DIP 스위치와 관계없이 CAN ID가 0xF0로 고정되어 있다.
- * 슬레이브 보드는 DIP 스위치를 1~9까지 설정하여 ID를 정한다. 정해진 설정 ID에 0xF0를 더하여 슬레이브 CAN ID가 설정된다. 0xF1~0xF9
- * CAN과 485 통신 종단 저항은 맨 처음과 맨 끝에만 달아야 한다.
- * 485의 종단 저항 양단에 전압은 200mV이상이 걸려야 한다.
- * 마스터 보드는 ON/OFF 신호를 슬레이브 보드에 CAN 2.0A 방식으로 전송한다. 통신속도 1Mbps, 1ms polling, 1 frame 당 CAN BUS 로드율은 약 8~9% 이다.
- * 슬레이브 보드들은 CAN 우선 순위대로 마스터로 센싱 전류(출력 전류)를 전송한다. 각 슬레이브 보드가 1ms마다 마스터로 데이터를 전송한다. 마스터에서는 10ms동안에 각각의 모든 슬레이브의 전류 데이터를 수신한다.
- * 슬레이브 보드  RS-232(SCI-B)   슬레이브 보드의 내부 변수 모니터링 Termial(TeraTerm)   100ms       230400bps
+/*===========================================================================
+ * 시스템 사양
+ *===========================================================================
+ * [통신 사양]
+ * - HMI 통신: RS232 Modbus RTU, 38400bps, 8bit/1stop/none, 100ms polling
+ * - 485 통신: 5.625Mbps, 0.1ms마다 9byte 전송 (전류지령)
+ * - CAN 통신: 1Mbps, 1ms polling, CAN 2.0A 방식
+ *   · 마스터: CAN ID 0xF0 (고정)
+ *   · 슬레이브: CAN ID 0xF1~0xF9 (DIP 스위치로 설정)
+ *   · 버스 로드율: 약 13% (1kHz 전송)
+ * - 터미널: SCI-B 230400bps (슬레이브 모니터링용)
  *
+ * [제어 사양]  
+ * - PI 제어: 20kHz (50us 주기)
+ * - 전류 범위: ±100A (0A=1.5V, +100A=3V, -100A=0V)
+ * - DAC 기본값: 2000 (OFF 상태)
+ * - 클럭: LSPCLK 90MHz/(7+1) = 11.25MHz
+ *
+ * [하드웨어 핀맵]
+ * - DIP Switch: GPIO10,11,41,55 (CAN ID 설정)
+ * - LED: GPIO4(RUN), GPIO5(FAULT), GPIO27,57(상태)
+ * - ADC: CH0(온도), CH1(전류), CH2(전압)
+ * - EEPROM: SDA(GPIO32), SCL(GPIO33), WP(GPIO14)
+ * - 485 통신: 종단저항 양단 200mV 이상 필요
+ *
+ * [아키텍처]
+ * - 마스터: PI 제어 + 전류지령 생성 → 485로 슬레이브에 전송
+ * - 슬레이브: CAN으로 센싱 전류값을 마스터에 피드백
+ * - 병렬 운전: 160A = 슬레이브 2개 × 80A (각각 4V/0V 출력)
  */
 
-// 20khz(50us)로 PI동작, RS485 Tx, CAN Tx는 main에서, SPI는 100khz 마다
-// OFF 상태일 때 DAC 값 약 2000 확인
-// -> 3으로 설정해야 LSPCLK 90Mhz/(3+1) = 22.5Mhz가 되어서 맞는 듯. 소장님께 확인 더 느려도 되는지? 아니면 22.5Mhz가 맞는지?
-// -> 7로 설정하면  LSPCLK 90Mhz/(7+1) = 11.25Mhz가 됨. 언제 부터 바뀌었는지 확인 필요.
-
-// GPIO5,6,7,8  DIP 스위치로 CAN ID를 설정하여 확인한다.
-// master에서는 시작/정지 명령과 전류 지령을 slave로 전달한다.
-// master에서는 PI만 하고 그 결과값을 slave1,2로 전달하여 slave1,2에서 dac를 출력한다. 2개 슬레이브 병렬이므로 160A 일때 slave1과 slave2는 각각 4V를 출력한다. -160A는 각각 0V를 출력한다.
-// slave는 can으로 응답
-// slave는 232를 사용하지 않으므로 터미널을 살린다. CAN ID 표시, master에서 수신받은 지령 표시
-
-
-// CAN 2.0B Bus Load Rate -> 2.0A로 하면 100us 소요될듯
-/*
-1000kbps로 1 bit를 전송하는데 1us가 걸린다.
-130bit(CAN 1 Frame)을 전송하는데 걸리는 시간은 130us이다.
-1ms 마다 1 Frame씩 매번 전송한다고 가정하면
-1ms 시간동안 bus는 130us동안만 차지될 것이고
-
-130/1000 //  1ms 마다 버스 로드는 13%로 계산된다. 1khz
-130/200  // 0.2ms 마다 버스 로드는 65%로 계산된다.
-
-실험결과 25k마다 보냈는데 수신 프로그램에서는 0.15ms 마다 수신됐음.
-
-130/100  // 0.1ms 마다는 안 됨. 100%를 넘어 감. 10khz
+/*===========================================================================
+ * 미완료 작업 (우선순위별)
+ *===========================================================================
+ * [우선순위 중]
+ * - 슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
+ * - 슬레이브에서 마스터의 485 수신 실패 시 CAN 폴트 전송
+ * 
+ * [우선순위 저]  
+ * - 리셋 후 초기 FAN 미동작 원인 검토
+ * - 터미널에 전류값 소수점 표시
+ * - SCI 에러 처리: if(SciaRegs.SCIRXST.bit.PE) // 패리티 에러 등
+ * - 에러 발생 시 카운트하여 저장
+ * - Flash vs RAM 실행시간 비교 분석
  */
-
-//100 1khz = 13%    1ms
-//50 2khz = 25%
-//10 10khz = 60%    0.1ms -> 수신 프로그램에서는 0.22ms로 수신됨
-//9 11.11khz = 66%
-//8 12.5khz = 73%
-//7 14.2857khz = 82%
-//6 16.6khz = 95%
-//5 20khz = 73%     0.2ms
-//4 25khz = 88%     0.4ms
-//3 33.3khz = 82%
-//2 50khz = 88%
-//1 100khz = 96%
-
-//
-/*
- * RXERR INT ENA(SCICTL1의 비트 6) 비트를 활성화하여 수신 오류가 발생할 때 인터럽트를 생성할 수 있습니다.
- * 이 비트를 활성화하면 중단이나 수신 오류가 발생할 때 인터럽트(PIE 및 SCI를 올바르게 구성했다고 가정)가 생성됩니다.
- * SCI RX INT ISR에서 SCIRXST 레지스터를 확인하여 어떤 오류(중단 감지 오류, 프레이밍 오류, 오버런 오류 및 패리티 오류)가 발생했는지 알 수 있습니다.
- * SCICTL1 레지스터의 SW RESET 비트를 사용하여 오류 플래그를 삭제할 수 있습니다.
- * 중단 감지 오류 발생 시 SCI는 데이터 수신을 중지합니다. 데이터 수신을 시작하려면 SW RESET 비트를 토글하여 SCI를 재설정해야 합니다.
- *  SCI RX ISR에서 SCIRXST 레지스터를 확인하여 어떤 오류가 발생했는지 확인할 수 있습니다.
- */
-
-// LED11, LED12, LED13 (PIN 31, 32, 33)
-// ADC0 - 온도
-// ADC1 - 100A 3V, 0A 1.5V, -100A 0V (100A 5mA 5V -> 100A 5mA 3V, -100A -5mA -5V -> -100A -5mA -3V)
-// 24LC128
-// EEROM-SDA GPIO32
-// EEROM-SCL GPIO33
-// EEROM-WP  GPIO14
-// CAN , https://m.blog.naver.com/cyjrntwkd/70120007780
-// 232
-// I2C
-// SPI (ADC chip)
-
-
-/* 해야 할일
-FAN 온도에 따른 PWM Duty 가변 안 됨. 0.15 fix
-슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
-마스터에서 슬레이브 CAN 수신 안 되면 통신 폴트 표시
-슬레이브에서 마스터의 485수신을 못 받으면 CAN으로 폴트 전송
-리셋 후 초기 FAN 안 돌아가는 원인 검토
-터미널에 전류값 소수점 표시
-통신 폴트 발생시 처리 및 경고
-if(SciaRegs.SCIRXST.bit.PE) // error 처리 할 것
-에러 발생 시 카운트해서 저장해 볼 것
-flash 에서 실행과 ram에서 실행시간 관찰
-
-Run 신호를 슬레이브로 전송시 0,1이 아닌 특정값으로 Run = 0xA0, !Run = x00;, 슬레이브에서도 프로그램 코드 수정할 것
-
-*/
 
 //###########################################################################
 #define _MAIN_C_
@@ -101,20 +55,18 @@ Run 신호를 슬레이브로 전송시 0,1이 아닌 특정값으로 Run = 0xA0
 #define MODULE_NUM (1)   // 모듈 개수
 
 #define MON_MAXCNT        (10000.)                        // Monitoring Count for Summing data.
-#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // 평균 구할 때 나눗샘을 곱샘으로 하기 위해서
+#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // 평균 구할 때 나눗셈을 곱셈으로 하기 위해서
 
 #ifndef _CAN_BUS_
 #define _CAN_BUS_      ( 1 )
 #endif
 
-#include "DSP28x_Project.h"     // Device Headerfile and Examples Include File
+#include "DSP28x_Project.h"
 #include "F2806x_Cla_defines.h"
 #include "string.h"
 
 #include "sicDCDC35kw.h"
-
-
-#include "sicDCDC35kw_setting.h" //@prabhu changed sicDCDC35kw_setting 20210811
+#include "sicDCDC35kw_setting.h"
 
 #include "modbus.h"
 #include "math.h"
@@ -123,18 +75,13 @@ Run 신호를 슬레이브로 전송시 0,1이 아닌 특정값으로 Run = 0xA0
 
 // Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
-extern STATE module_state;           // 모듈 상태
+extern STATE module_state;            // 모듈 상태
 
-void InitEPwm1Example(void);
-void InitEPwm2Example(void);
-void InitEPwm3Example(void);
-
+void InitEPwm1(void);
+void InitEPwm3(void);
 void spi_init(void);
 void eCana_config (void);
-
-void SendParameters(void);  // 추가된 함수 선언
-
-void stra_xmit(UCHAR  *buff, Uint16 Length);
+void stra_xmit(Uint8 *buff, Uint16 Length);
 
 
 #if _CAN_BUS_
@@ -146,33 +93,24 @@ unsigned long ulCanTRS_Prev = 0;
 #endif
 
 #pragma CODE_SECTION(scia_txFifo_isr, "ramfuncs");
-//#pragma CODE_SECTION(scia_rxFifo_isr, "ramfuncs");
 #pragma CODE_SECTION(cpuTimer1ExpiredISR, "ramfuncs");
 #pragma CODE_SECTION(scibRxReadyISR, "ramfuncs");
 #pragma CODE_SECTION(scibTxEmptyISR, "ramfuncs");
 #pragma CODE_SECTION(cpu_timer0_isr, "ramfuncs");   //copy to FLash to ram
 #pragma CODE_SECTION(cpu_timer2_isr, "ramfuncs");   //copy to FLash to ram
-
-//#pragma CODE_SECTION(USART_A_FUNC, "ramfuncs");
-#pragma CODE_SECTION(modbus_parse, "ramfuncs");
-
-
+#pragma CODE_SECTION(ParseModbusData, "ramfuncs");
 #pragma CODE_SECTION(stra_xmit, "ramfuncs");
 #pragma CODE_SECTION(epwm3_isr, "ramfuncs");
 #pragma CODE_SECTION(ecan0_isr, "ramfuncs");
+#pragma CODE_SECTION(adc_isr, "ramfuncs");   //copy to Flash to Ram
 
 __interrupt void cpu_timer0_isr(void);
 __interrupt void cpu_timer2_isr(void);
 __interrupt void epwm1_isr(void);
-//__interrupt void epwm2_isr(void);
 __interrupt void epwm3_isr(void);
 __interrupt void spi_isr(void);
-//__interrupt void scia_rxFifo_isr(void);
 __interrupt void scia_txFifo_isr(void);
 __interrupt void ecan0_isr(void);
-
-
-#pragma CODE_SECTION(adc_isr, "ramfuncs");   //copy to Flash to Ram
 __interrupt void adc_isr(void);
 
 extern Uint16 Cla1funcsLoadStart;
@@ -193,23 +131,11 @@ Uint16 cpu_timer0_cnt = 0, cpu_timer1_cnt = 0, cpu_timer2_cnt = 0;
 
 
 //PI
-Uint16 rx_adc_data;
-int32 rx_adc_data_buf;
-int32 rx_adc_data_buf_sum = 0;
 float32 rx_adc_data_buf_ave = 0.0f;
 
 float v_ref = 5.;
-Uint16 test_dac = 2000;
-Uint16 test_en, test_en2 =0;
-Uint16 hw_switch = 0;
-Uint16 Buck_EN = 0;
 
-Uint16 board2_voltage;
-Uint16 board2_current;
 Uint16 tx_count = 0, count_num = 100;
-Uint8 test_data[8] = {0};
-
-
 
 #define STOP (0)
 #define START (1)
@@ -228,318 +154,246 @@ Uint8 test_data[8] = {0};
 
 Uint16 fifo_err_cnt = 0;
 
-Uint16 LoopCount = 0;
-Uint16 ErrorCount= 0;
-
-Uint16 _1second_flag = 0, force_reset_test = 0;
+Uint16 force_reset_test = 0;
 
 
 // 전송 제어 문자
 #define STX (0x02) // Start of Text, 본문의 개시 및 정보 메세지 헤더의 종료를 표시
 #define ETX (0x03) // End of Text, 본문의 종료를 표시한다
 #define DLE (0x10) // Data link escape, 뒤따르는 연속된 글자들의 의미를 바꾸기 위해 사용, 주로 보조적 전송제어기능을 제공
-
-
 Uint16 gSciTxBuf[4] = {STX,0,0,ETX};
 
-
-int16 slop = 0;
 Uint16 can_tx_flag = 0;
 
 Uint16 can_rx_fault_cnt[11], detect_module_num = 1;
 
-Uint16 size_check = 0;
+// CAN 메일박스 배열 포인터 (protocol.c 방식 적용)
+static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
+// 전류 센서 배열 (currentSense1~9를 배열처럼 접근하기 위한 포인터)
+static Uint32 *current_sense_array[10]; // 인덱스 0은 사용 안함
 
-// SD2 //GPIO3   SPISOMIA(기존과 동일, 네트 이름만 변경)
-// SCK2 //GPIO18 SPICLKA (기존과 동일,  네트 이름만 변경) DAC1-CLK
-// CS_100K // GPIO44 (chip select) 기존 그대로 사용
-
-// Gpio_select() 수정 부분
-
-// ADC-CNV (GPIO7)은 삭제
-float adc_ramp = 1.;
-Uint16 adc_offset = 2500;
-Uint32 test_val = 0;
-Uint16 count_num2 = 100000; //100000 = 1sec. 10000 = 100ms
-Uint16 send_start_flag = 1;
-Uint16 test_out_A = 0;
 Uint16 Run_on_count = 0;
-Uint16 switch_1_old_old = 0, switch_1_old = 0, switch_1 = 0, filtered_switch_input = 0;
-Uint16 _10ms_timer = 0;
-float I_com_1;  // Declare before usage
+Uint16 timer_10ms = 0;
 
-
-
-unsigned int MonitoringCount = 0;
 float Vo_delta = 0.;
-float Vo_sen_sum_mon = 0.;
 float Vo_Monitor = 0.;
-float Vo_Mean = 0.;
 
 Uint16 hw_fault = 0, GPIO_in = 0, GPIO_in_1 = 0;
 
 
-void main(void)
- {
-
+/**
+ * @brief 메인 함수 - 시스템 초기화 및 메인 루프
+ */
+void main(void) {
     Uint16 i;
-    UI_Iout_command.fValue = 0; // Iout_command.fValue = 80;
+    static eMBErrorCode eStatus;
+    
+    uiCurrentCommand.f = 0;
 
+    //=========================================================================
+    // 1. 시스템 제어 초기화 (PLL, 워치독, 주변장치 클럭)
+    //=========================================================================
+    InitSysCtrl(); // 90MHz PLL 설정
+    
+    // Flash 운영을 위한 RAM으로 복사 (타이밍 크리티컬 코드)
+    memcpy(&RamfuncsRunStart, &RamfuncsLoadStart, (Uint32)&RamfuncsLoadSize);
 
-// Step 1. Initialize System Control:
-// PLL, WatchDog, enable Peripheral Clocks (PLL 18/2*10M (INOSC1)
-// This example function is found in the F2806x_SysCtrl.c file.
-    InitSysCtrl(); // 90Mhz/1  sci_clk/16 = 5.625Mbps(Max),  90Mhz/4 = 22.5Mhz, sci_clk/16 = 1.40625Mbps(Max)
-//Control Suite 새로 설치시에는 SysCtrlRegs.LOSPCP.all = 0x0000; 으로 변경해줘야 한다. 20247.10.10
+    //=========================================================================
+    // 2. GPIO 초기화
+    //=========================================================================
+    gpio_config();
 
-    ///////////////////////////////////////////////////////////////////////////////////////////
-    // for FLASH operation
-    // 1. Copy time critical code and Flash setup code to RAM
-    // This includes the following ISR functions: cpu_timer0_isr(), adc_isr()
-    // and InitFlash() - (default);
-    // 2. The  RamfuncsLoadStart, RamfuncsLoadSize, and RamfuncsRunStart
-    // symbols are created by the linker. Refer to the F28069.cmd file.
-       memcpy(&RamfuncsRunStart, &RamfuncsLoadStart, (Uint32)&RamfuncsLoadSize);
+    
+    // GPIO 하드웨어 Qualification 설정 (글리치 제거)
+    EALLOW;
+    // DIP 스위치용: 6 SYSCLKOUT 사이클로 qualification (90MHz/6 = 15MHz 이하 변화만 통과)
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 3; // DIP Switch 2 - 6 cycles qualification
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO11 = 3; // DIP Switch 1 - 6 cycles qualification  
+    GpioCtrlRegs.GPBQSEL1.bit.GPIO41 = 3; // DIP Switch 4 - 6 cycles qualification
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 3; // DIP Switch 3 - 6 cycles qualification
+    
+    // Start/Stop 스위치용: 3 SYSCLKOUT 사이클로 qualification (더 빠른 응답)
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2; // Start/Stop Switch - 3 cycles qualification
+    EDIS;
+    
+    ReadGpioInputs(); // Board ID 읽기 및 초기 CAN ID 설정
 
-    // 3. Call Flash Initialization to setup flash waitstates
-    // This function must reside in RAM (default configuration)
-    //  InitFlash();
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-//   DELAY_US(100000); // 1 second, (SMPS Setup Rise Time margin)
-
-   static eMBErrorCode eStatus;
-
-// Step 2. Initalize GPIO: 
-// This example function is found in the F2806x_Gpio.c file and
-// illustrates how to set the GPIO to it's default state.
-    Gpio_select();
-
-//    led2ON(); //GpioDataRegs.GPBSET.bit.GPIO57  = 1
-
-    DigitalIn.all = 0;
-
-    Digital_Input(); // board의 id를 읽어서 초기 can id를 설정하기 위함
-
-// For this case just init GPIO pins for ePWM1 ~ ePWM8
-// These functions are in the F2806x_EPwm.c file
-    InitEPwm1Gpio(); //dont use for a 3-phase interleaved version
+    // PWM 및 SPI GPIO 설정
+    InitEPwm1Gpio();
     InitEPwm3Gpio();
-
-// Setup only the GP I/O only for SPI-A functionality
     InitSpiaGpio();
 
-
-// Step 3. Clear all interrupts and initialize PIE vector table:
-// Disable CPU interrupts 
+    //=========================================================================
+    // 3. 인터럽트 및 PIE 벡터 테이블 초기화
+    //=========================================================================
     DINT;
-
-// Initialize the PIE control registers to their default state.
-// The default state is all PIE interrupts disabled and flags
-// are cleared.  
-// This function is found in the F2806x_PieCtrl.c file.
     InitPieCtrl();
-
-//    size_check = sizeof(eChargeMode);
-
-    //
-    // Call Flash Initialization to setup flash waitstates
-    // This function must reside in RAM
-    //
     InitFlash();
-
-//    DINT;
-    // Disable interrupts again (for now)
-    // Note that InitPieCtrl() enables interrupts
-// Disable CPU interrupts and clear all CPU interrupt flags:
+    
+    // 인터럽트 플래그 초기화
     IER = 0x0000;
     IFR = 0x0000;
 
-   InitSciaGpio(); // RS-232, PCB ref. CN4 , for Parameter Monitoring
-   scia_fifo_init();      // Initialize the SCI FIFO
-   scia_init();
+    //=========================================================================
+    // 4. 시리얼 통신 초기화 (RS-232, RS-485)
+    //=========================================================================
+    InitSciaGpio();
+    scia_fifo_init();
+    scia_init();
+    
+    EALLOW;
+    En485_ON();
+    EDIS;
+    
+    Tx485_ON(); // 마스터 모드
 
-   EALLOW;   // This is needed to write to EALLOW protected registers
-   En485_ON( );   // GpioCtrlRegs.GPADIR.bit.GPIO30 = 1;
-   EDIS;     // This is needed to disable write to EALLOW protected registers
-
-   Tx485_ON( ); // for master
-//   Rx485_ON( ); // for slave
-
-//   msg = "Hello World\0";
-//   scia_msg(msg);
-////   msg = "\r\nDSP USART(SCI-B) port init...  \n\0";
-//   scib_msg(msg);
-//
-   //   msg = "\r\n\0";
-//   scib_msg(msg);
-
-
-// Initialize the PIE vector table with pointers to the shell Interrupt 
-// Service Routines (ISR).  
-// This will populate the entire table, even if the interrupt
-// is not used in this example.  This is useful for debug purposes.
-// The shell ISR routines are found in F2806x_DefaultIsr.c.
-// This function is found in F2806x_PieVect.c.
+    //=========================================================================
+    // 5. PIE 벡터 테이블 및 CAN 통신 초기화
+    //=========================================================================
     InitPieVectTable();
-
-    InitECanaGpio();         // GPIO를 CAN 통신 용으로 설정
-    InitECana();          // CAN 초기화 : CAN2.0A 모드, 1Mbps 속도
+    InitECanaGpio();
+    InitECana();
     eCana_config();
-
     InitProtocol();
 
-    InitAdc();  // For this example, init the ADC
+    //=========================================================================
+    // 6. ADC 및 SPI 초기화
+    //=========================================================================
+    InitAdc();
     AdcOffsetSelfCal();
     EALLOW;
-    AdcRegs.ADCCTL1.bit.ADCREFSEL = 1; // Select external ref. after self-calib. proc.
+    AdcRegs.ADCCTL1.bit.ADCREFSEL = 1; // 외부 기준전압 선택
     EDIS;
-
+    
     AdcSetup();
-    spi_init();        // init SPI
+    spi_init();
 
-    InitCpuTimers();   //  initialize the Cpu Timers ( and stop timer)
-
-    ConfigCpuTimer(&CpuTimer2, 90, 50); //20kHz interrupt
-
+    //=========================================================================
+    // 7. 타이머 초기화
+    //=========================================================================
+    InitCpuTimers();
+    ConfigCpuTimer(&CpuTimer2, 90, 50); // 20kHz 인터럽트
+    
     EALLOW;
-    SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 0; // stop timer
+    SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 0; // 타이머 정지
     EDIS;
 
-    PieCtrlRegs.PIECTRL.bit.ENPIE = 1;  // Enable vector fetching from PIE block
-
-// Interrupts that are used in this example are re-mapped to
-// ISR functions found within this file.
+    //=========================================================================
+    // 8. 인터럽트 벡터 할당
+    //=========================================================================
+    PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
+    
     EALLOW;
-    PieVectTable.EPWM1_INT = &epwm1_isr;     // dont use
+    PieVectTable.EPWM1_INT = &epwm1_isr;
     PieVectTable.EPWM3_INT = &epwm3_isr;
-    PieVectTable.ADCINT1 = &adc_isr; // to update ADC results, at the last ADC conversion in one PWM period
-
+    PieVectTable.ADCINT1 = &adc_isr;
     PieVectTable.SPIRXINTA = &spi_isr;
-
-    PieVectTable.SCIRXINTB = &scibRxReadyISR; // modbus
-    PieVectTable.SCITXINTB = &scibTxEmptyISR; // modbus
-    PieVectTable.TINT1 = &cpuTimer1ExpiredISR; // modbus
-
-    PieVectTable.TINT0 = &cpu_timer0_isr; // to calculate controllers
-    PieVectTable.TINT2 = &cpu_timer2_isr; //
-
-    PieVectTable.SPIRXINTA = &spi_isr;
-
-    PieVectTable.ECAN0INTA = &ecan0_isr; // CAN-A 인터럽트 핸들러 등록
-
+    PieVectTable.SCIRXINTB = &scibRxReadyISR;
+    PieVectTable.SCITXINTB = &scibTxEmptyISR;
+    PieVectTable.TINT1 = &cpuTimer1ExpiredISR;
+    PieVectTable.TINT0 = &cpu_timer0_isr;
+    PieVectTable.TINT2 = &cpu_timer2_isr;
+    PieVectTable.ECAN0INTA = &ecan0_isr;
     EDIS;
-    // This is needed to disable write to EALLOW protected registers
 
-    InitEPwm1Example();    //Initialize ePWM1
-    InitEPwm3Example();    //Initialize ePWM3
+    //=========================================================================
+    // 9. PWM 초기화
+    //=========================================================================
+    InitEPwm1();
+    InitEPwm3();
 
-    /* Configure PIE interrupts */
-    PieCtrlRegs.PIECTRL.bit.ENPIE = 1;  // Enable vector fetching from PIE block
-    PieCtrlRegs.PIEACK.bit.ACK9 = 1; // Enables PIE to drive a pulse into the CPU
+    //=========================================================================
+    // 10. 인터럽트 활성화
+    //=========================================================================
+    PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
+    PieCtrlRegs.PIEACK.bit.ACK9 = 1;
 
-    IER |= M_INT1; // Enable CPU Interrupt 1 (timer 0, INT0-INT1.7) and (ADCINT1, INT1.1)
-    IER |= M_INT3;            // Enable CPU Interrupt 3 (ePWM1~ePWM8) - reserved
-    IER |= M_INT6;                      // Enable INT6 of CPU for SPIRXINTA
-    IER |= M_INT9; // Enable INT9 of CPU for CAN, Enable CPU INT9 which is connected to SCI-A/B:
+    // CPU 인터럽트 그룹 활성화
+    IER |= M_INT1;  // Timer 0, ADC
+    IER |= M_INT3;  // ePWM
+    IER |= M_INT6;  // SPI
+    IER |= M_INT9;  // CAN, SCI
+    IER |= M_INT13; // Timer 1
 
-// Enable EPWM INTn in the PIE: Group 3 interrupt 1-3
-// PieCtrlRegs.PIEIER3.bit.INTx1 = 1;
- PieCtrlRegs.PIEIER3.bit.INTx3 = 1; // <<-- ePWM3, kcs
-
-// Enable TINT0 in the PIE: Group 1 interrupt 7
-//    PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
-// Enable ADCINT1 in PIE
-    PieCtrlRegs.PIEIER1.bit.INTx1 = 1;
-
-// Enable SPIRXINTA in the PIE: Group 6 interrupt 1
-    PieCtrlRegs.PIEIER6.bit.INTx1 = 1;
-
-    // SCI-A/B related interrupt
-    // Enable SCIRxINTA & SCITxINTA in the PIE: Group 9 interrupt 1 & 2 respectively
-//    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;     // PIE Group 9, INT1 : SCIRxINTA
-//    PieCtrlRegs.PIEIER9.bit.INTx2 = 1;     // PIE Group 9, INT2 : SCITxINTA
-
-    PieCtrlRegs.PIEIER9.bit.INTx3 = 1;     // PIE Group 9, INT1 : SCIRxINTB
-    PieCtrlRegs.PIEIER9.bit.INTx4 = 1;     // PIE Group 9, INT2 : SCITxINTB
-
-    IER |= M_INT13;                     // Timer 1
-//  IER |= M_INT14;                     // Timer 2
-
-    // CAN 인터럽트 활성화
-    PieCtrlRegs.PIEIER9.bit.INTx5 = 1;     // PIE Group 9, INT5 : ECAN0INTA
-    PieCtrlRegs.PIEIER9.bit.INTx6 = 0;     // PIE Group 9, INT6 : ECAN1INTA
+    // PIE 인터럽트 활성화
+    PieCtrlRegs.PIEIER3.bit.INTx3 = 1; // ePWM3
+    PieCtrlRegs.PIEIER1.bit.INTx1 = 1; // ADC
+    PieCtrlRegs.PIEIER6.bit.INTx1 = 1; // SPI
+    PieCtrlRegs.PIEIER9.bit.INTx3 = 1; // SCI-B RX
+    PieCtrlRegs.PIEIER9.bit.INTx4 = 1; // SCI-B TX
+    PieCtrlRegs.PIEIER9.bit.INTx5 = 1; // CAN
 
     EALLOW;
-    SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 1;
+    SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 1; // 타이머 시작
     EDIS;
 
-//DAC SETTING
+    //=========================================================================
+    // 11. DAC 초기 설정
+    //=========================================================================
     DAC1_DS();
-    DAC1_CS(); // DAC1_CS Activate w Falling Edge
-    SpiaRegs.SPITXBUF = 0xD002; // Write DAC Control Register for 2.048v internal ref.
+    DAC1_CS();
+    SpiaRegs.SPITXBUF = 0xD002; // DAC 제어 레지스터 (2.048V 내부 기준전압)
     while (!SpiaRegs.SPISTS.bit.INT_FLAG);
     deg_sDacTmp = SpiaRegs.SPIRXBUF;
 
-
-
-    /* Initialize the input register values before starting the Modbus stack. */
+    //=========================================================================
+    // 12. Modbus 프로토콜 스택 초기화
+    //=========================================================================
+    // 레지스터 초기화
     for (i = 0; i < REG_INPUT_NREGS; i++) usRegInputBuf[i] = 0;
-
-    /* Initialize the holding register values before starting the Modbus stack. */
     for (i = 0; i < REG_HOLDING_NREGS; i++) usRegHoldingBuf[i] = 0;
 
-    // Initialize protocol stack in RTU mode for a slave with address 01 = 0x01
+    // Modbus RTU 모드 초기화 (슬레이브 주소: 0x01, 38400 bps)
     eStatus = eMBInit(MB_RTU, 0x01, 0, 38400, MB_PAR_NONE);
-
-    if (eStatus != MB_ENOERR)
-    {
+    if (eStatus != MB_ENOERR) {
         EALLOW;
-        // This is needed to write to EALLOW protected registers
         SysCtrlRegs.WDCR = 0x0010;
         EDIS;
-        // This is needed to disable write to EALLOW protected registers
     }
 
-    // Enable the Modbus Protocol Stack.
+    // Modbus 프로토콜 스택 활성화
     eStatus = eMBEnable();
-    if (eStatus != MB_ENOERR)
-    {
+    if (eStatus != MB_ENOERR) {
         EALLOW;
-        // This is needed to write to EALLOW protected registers
         SysCtrlRegs.WDCR = 0x0010;
         EDIS;
-        // This is needed to disable write to EALLOW protected registers
     }
 
-
-//    type_size = sizeof(UCHAR);
-//    Vin_monitor.fValue = 0;
-//    Vout_monitor.fValue = 0;
-//    Iout_monitor.fValue = 0;
-
-    // Reset the watchdog counter
-    ServiceDog();
-//    // Enable the watchdog
+    //=========================================================================
+    // 13. 최종 시스템 활성화
+    //=========================================================================
+    ServiceDog(); // 워치독 리셋
+    
+    // 전류 센서 포인터 배열만 초기화 (mbox_array는 캐스팅으로 바로 사용 가능)
+    current_sense_array[0] = 0; // 사용 안함
+    current_sense_array[1] = &currentSense1.u;
+    current_sense_array[2] = &currentSense2.u;
+    current_sense_array[3] = &currentSense3.u;
+    current_sense_array[4] = &currentSense4.u;
+    current_sense_array[5] = &currentSense5.u;
+    current_sense_array[6] = &currentSense6.u;
+    current_sense_array[7] = &currentSense7.u;
+    current_sense_array[8] = &currentSense8.u;
+    current_sense_array[9] = &currentSense9.u;
+    
     EALLOW;
-    SysCtrlRegs.WDCR = 0x0028;
+    SysCtrlRegs.WDCR = 0x0028; // 워치독 활성화
     EDIS;
 
-    // Enable global Interrupts and higher priority real-time debug events:
-    EINT;
-    // Enable Global interrupt INTM
-    ERTM;
-    // Enable Global realtime interrupt DBGM
+    EINT; // 전역 인터럽트 활성화
+    ERTM; // 실시간 디버그 인터럽트 활성화
 
-//    Tx485_ON();
+    IcomTemp = 2000; // 초기 전류 지령값
 
-    IcomTemp = 2000;
-
+    //=========================================================================
+    // 14. 메인 루프
+    //=========================================================================
     for (;;)
     {
-        mainLoopCount++; //free run counter, for debugging
-        if(ScibRegs.SCIFFRX.bit.RXFFOVF || force_reset_test) // 리셋 시 usRegHoldingBuf는 초기화 되지 않아야한다.
-        {
+        mainLoopCount++; // 디버깅용 free-run 카운터
+        
+        // SCI FIFO 오버플로우 처리
+        if(ScibRegs.SCIFFRX.bit.RXFFOVF || force_reset_test) {
             force_reset_test = 0;
             fifo_err_cnt++;
             ScibRegs.SCIFFRX.bit.RXFIFORESET = 0;
@@ -547,514 +401,577 @@ void main(void)
             ScibRegs.SCIFFRX.bit.RXFIFORESET = 1;
         }
 
-        (void) eMBPoll(); // 2024.06.04 반드시 메인 무한 루프에서 호출할 것.
+        // Modbus 폴링 (필수 호출)
+        (void) eMBPoll();
 
         // CAN 보고 처리
         if(can_report_flag == 1) {
             can_report_flag = 0;            
-            SendCANReport(16);  // 상태에 따라 100번대 또는 110번대 메시지 전송
+            SendCANReport(16);
         }
 
-        if(can_tx_flag == 1)
-        {
+        // CAN 송수신 처리 (1kHz)
+        if(can_tx_flag == 1) {
+            // C89 변수 선언 (i는 메인 함수 시작에서 이미 선언됨)
+            Uint32 rmp_status;
+            
             can_tx_flag = 0;
-            if(Run == 1) ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0; // 2025.02.17
+            
+            // 운전 상태에 따른 CAN 메시지 설정
+            if(Run == 1) ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0;
             else         ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;
 
-            ECanaRegs.CANTRS.all = 0x00000001;   // Transmit Request Set // 약 1초에 6000 프레임 전송)
+            ECanaRegs.CANTRS.all = 0x00000001; // 전송 요청
 
-            if (ECanaRegs.CANRMP.bit.RMP1 != 0) {Io_sense1.ulValue  = ECanaMboxes.MBOX1.MDL.all; ECanaRegs.CANRMP.bit.RMP1 = 1; can_rx_fault_cnt[1] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[1]++ >= 10000) {Io_sense1.ulValue = 0; can_rx_fault_cnt[1] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP2 != 0) {Io_sense2.ulValue  = ECanaMboxes.MBOX2.MDL.all; ECanaRegs.CANRMP.bit.RMP2 = 1; can_rx_fault_cnt[2] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[2]++ >= 10000) {Io_sense2.ulValue = 0; can_rx_fault_cnt[2] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP3 != 0) {Io_sense3.ulValue  = ECanaMboxes.MBOX3.MDL.all; ECanaRegs.CANRMP.bit.RMP3 = 1; can_rx_fault_cnt[3] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[3]++ >= 10000) {Io_sense3.ulValue = 0; can_rx_fault_cnt[3] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP4 != 0) {Io_sense4.ulValue  = ECanaMboxes.MBOX4.MDL.all; ECanaRegs.CANRMP.bit.RMP4 = 1; can_rx_fault_cnt[4] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[4]++ >= 10000) {Io_sense4.ulValue = 0; can_rx_fault_cnt[4] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP5 != 0) {Io_sense5.ulValue  = ECanaMboxes.MBOX5.MDL.all; ECanaRegs.CANRMP.bit.RMP5 = 1; can_rx_fault_cnt[5] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[5]++ >= 10000) {Io_sense5.ulValue = 0; can_rx_fault_cnt[5] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP6 != 0) {Io_sense6.ulValue  = ECanaMboxes.MBOX6.MDL.all; ECanaRegs.CANRMP.bit.RMP6 = 1; can_rx_fault_cnt[6] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[6]++ >= 10000) {Io_sense6.ulValue = 0; can_rx_fault_cnt[6] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP7 != 0) {Io_sense7.ulValue  = ECanaMboxes.MBOX7.MDL.all; ECanaRegs.CANRMP.bit.RMP7 = 1; can_rx_fault_cnt[7] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[7]++ >= 10000) {Io_sense7.ulValue = 0; can_rx_fault_cnt[7] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP8 != 0) {Io_sense8.ulValue  = ECanaMboxes.MBOX8.MDL.all; ECanaRegs.CANRMP.bit.RMP8 = 1; can_rx_fault_cnt[8] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[8]++ >= 10000) {Io_sense8.ulValue = 0; can_rx_fault_cnt[8] = 10000;}}
-            if (ECanaRegs.CANRMP.bit.RMP9 != 0) {Io_sense9.ulValue  = ECanaMboxes.MBOX9.MDL.all; ECanaRegs.CANRMP.bit.RMP9 = 1; can_rx_fault_cnt[9] = 0;}
-            else                                {                                                                               if(can_rx_fault_cnt[9]++ >= 10000) {Io_sense9.ulValue = 0; can_rx_fault_cnt[9] = 10000;}}
+            // CAN 메일박스 상태 읽기 (성능 최적화)
+            rmp_status = ECanaRegs.CANRMP.all & 0x000003FE; // MBOX1~9
+            
+            // 슬레이브 모듈별 전류값 수신 처리 (루프로 간단화)
+            for(i = 1; i <= 9; i++) {
+                if (rmp_status & (1 << i)) {
+                    // CAN 데이터 수신됨 (구조체 캐스팅으로 배열 접근)
+                    *current_sense_array[i] = mbox_array[i].MDL.all; 
+                    ECanaRegs.CANRMP.all = (1 << i); // 해당 비트만 클리어
+                    can_rx_fault_cnt[i] = 0;
+                } else {
+                    // CAN 데이터 수신 안됨 (타임아웃 처리)
+                    if(can_rx_fault_cnt[i]++ >= 10000) {
+                        *current_sense_array[i] = 0; 
+                        can_rx_fault_cnt[i] = 10000;
+                    }
+                }
+            }
 
-            for(i = 1; i < 10; i++)
-            {
-                if(can_rx_fault_cnt[i] < 9999) if(detect_module_num++ >  10) detect_module_num = 10;
-                else                           if(detect_module_num-- <   1) detect_module_num = 1;
+            // 활성 모듈 개수 계산
+            for(i = 1; i < 10; i++) {
+                if(can_rx_fault_cnt[i] < 9999) {
+                    if(detect_module_num++ > 10) detect_module_num = 10;
+                } else {
+                    if(detect_module_num-- < 1) detect_module_num = 1;
+                }
             }
         }
 
-        // slave에서 중복된 can id를 설정하여 마스터나 슬레이브의 can 레지스터에 어떤 에러가 발생하는지 관찰한다.
-        // 또는 peak can을 연결하여 busoff 등 에러를 관찰하여 처리 방법을 찾는다.
-
-        if(_50us_flag )
-        {
+        // Modbus 데이터 파싱 (20kHz -> 100Hz)
+        if(_50us_flag) {
             _50us_flag = 0;
-            if(_0_1ms_count++ >= 200){ // 10ms loop, 20khz/100hz = 200
+            if(_0_1ms_count++ >= 200) { // 10ms 주기
                 _0_1ms_count = 0;
-                modbus_parse(); // RS-232 modbus parse
+                ParseModbusData();
             }
         }
 
-        // Watch dog service
+        // 워치독 서비스
         EALLOW;
-        SysCtrlRegs.WDKEY = 0x0055; // Feed Dog with one Key, the other in Timer 0 ISR
-                                    // Dog runs with the highest rate of OSC/512/2^8 = 686 Hz
-        //SysCtrlRegs.WDKEY = 0x00AA;
+        SysCtrlRegs.WDKEY = 0x0055; // 워치독 키 (다른 키는 Timer 0 ISR에서)
         EDIS;
 
-    } //end (for loop)
+    } // 메인 루프 끝
+} // 메인 함수 끝
 
-} //end main
+//=============================================================================
+// 유틸리티 함수
+//=============================================================================
 
-
-void stra_xmit(UCHAR  *buff, Uint16 Length)
-{
-    Uint16  i;
-//    DELAY_US ( 10 );
-//    Tx485_ON( );
-    for(i=0 ; i<Length ; i++)
-    {
+/**
+ * @brief 문자열 전송 함수 (SCI-A)
+ * @param buff 전송할 데이터 버퍼
+ * @param Length 전송할 데이터 길이
+ */
+void stra_xmit(Uint8 *buff, Uint16 Length) {
+    Uint16 i;
+    
+    for(i = 0; i < Length; i++) {
         SciaRegs.SCITXBUF = buff[i];
         while(SciaRegs.SCICTL2.bit.TXRDY == 0);
     }
-//    DELAY_US ( 2 );
-//    Rx485_ON( ); // for slave
 }
 
+//=============================================================================
+// 인터럽트 서비스 루틴
+//=============================================================================
 
-__interrupt void cpu_timer0_isr(void) //100khz
-{
+/**
+ * @brief CPU Timer 0 인터럽트 (100kHz)
+ */
+__interrupt void cpu_timer0_isr(void) {
     cpu_timer0_cnt++;
-
-    CpuTimer0Regs.TCR.bit.TIF = 1;   // Clear Interrupt flag
-
-// Acknowledge this interrupt to receive more interrupts from group 1
+    CpuTimer0Regs.TCR.bit.TIF = 1; // 인터럽트 플래그 클리어
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 }
 
-
-
-__interrupt void cpu_timer2_isr(void) //1 Second
-{
-//    _1second_flag = 1;
-//    led3ON();
+/**
+ * @brief CPU Timer 2 인터럽트 (1초)
+ */
+__interrupt void cpu_timer2_isr(void) {
     cpu_timer2_cnt++;
-//    SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      /* SCI 송신 FIFO 인터럽트 Enable */
-//    led3OFF();
-//    led3TOGGLE();
 }
 
-
+/**
+ * @brief SPI 인터럽트 서비스 루틴
+ */
 Uint16 spi_interrupt_cnt;
-__interrupt void spi_isr(void)
-{
+__interrupt void spi_isr(void) {
     spi_interrupt_cnt++;
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP6;   // Acknowledge interrupt to PIE
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP6;
 }
 
+/**
+ * @brief ePWM1 인터럽트 서비스 루틴 (팬 PWM 제어용)
+ */
 Uint16 epwm1_isr_cnt, led2_on;
-__interrupt void epwm1_isr(void)
-{
-//    epwm1_isr_cnt++;
-    // Clear INT flag for this timer
-    EPwm1Regs.ETCLR.bit.INT = 1;
-
-    // Acknowledge this interrupt to receive more interrupts from group 3
+__interrupt void epwm1_isr(void) {
+    EPwm1Regs.ETCLR.bit.INT = 1; // 인터럽트 플래그 클리어
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
 }
 
 Uint16 epwm3_isr_cnt, check_counter;
-__interrupt void epwm3_isr(void) // 100KHz
-{
-    Uint16 i; epwm3_isr_cnt++;
-//    led2ON();
-//    led3ON();
-    if(tx_count++ >= count_num) // 1khz(1ms) 마다
+/**
+ * @brief ePWM3 인터럽트 서비스 루틴 (100kHz 호출)
+ * 
+ * 주요 기능:
+ * - 20kHz PI 제어 알고리즘 실행 (case 0, 1)  
+ * - 전류 지령 처리 및 통신 (case 2)
+ * - 온도 처리 및 CAN 보고 (case 3)
+ * - 전류/전압 평균 계산 및 팬 제어 (case 4)
+ * - SPI ADC 데이터 처리
+ * - GPIO 하드웨어 폴트 감지
+ */
+__interrupt void epwm3_isr(void) { // 100KHz
+    // C89 변수 선언
+    Uint16 i;
+    
+    epwm3_isr_cnt++;
+
+    //=========================================================================
+    // 1. CAN 전송 타이밍 관리 (1kHz)
+    //=========================================================================
+    if(tx_count++ >= count_num) // 1ms 마다 CAN 전송
     {
         tx_count = 0;
-        can_tx_flag = 1; // main loop 에서 처리
+        can_tx_flag = 1; // 메인 루프에서 처리
     }
 
-    DAC1_DS(); // DAC1_CS Deactivate
-    rx_adc_data = SpiaRegs.SPIRXBUF; // Read ADC data
+    //=========================================================================  
+    // 2. SPI ADC 데이터 처리
+    //=========================================================================
+    DAC1_DS();                          // DAC1_CS 비활성화
+    currentAdc = SpiaRegs.SPIRXBUF;     // ADC 데이터 읽기
 
-    ADC1_CS(); // ADC1_CS Activate w Falling Edge 컨버전 시작 후 최소 700ns 후에 읽어야 함.
-    DAC1_CS(); // DAC1_CS Activate w Falling Edge
+    ADC1_CS();                          // ADC1_CS 활성화 (컨버전 시작)
+    DAC1_CS();                          // DAC1_CS 활성화
 
-    rx_adc_data_buf_sum += rx_adc_data;
-    if(rx_adc_data_buf_sum < 1) rx_adc_data_buf_sum = 1;
+    // ADC 데이터 누적 (평균 계산용)
+    currentAdcSum += currentAdc;
+    if(currentAdcSum < 1) currentAdcSum = 1;
 
-    Io_ad_sum += Io_ad;
-
-/********************************
-// 20khz loop
- *
- * 20khz 에 PI_L를 하고, 다시 20khz 후에 PI_H를 수행한다.
- * 그래서 PI_L과 PI_H의 연산(수행)시간을 각각 체크해본다. 두개가 합쳐서 100Khz 이내에 가능한지.
- * 3.5uS + 1.666uS = 5.1666us
-*********************************/
-    switch(_100khz_count)
+    //=========================================================================
+    // 3. 100kHz -> 20kHz 분주 제어 알고리즘
+    //=========================================================================
+    /* 
+     * 20kHz로 PI 제어 실행:
+     * - case 0: 전압 센싱 (20kHz)
+     * - case 1: 통합 PI 제어 (충전/방전 자동 선택) - **테스트용**
+     * - case 2: 전류 지령 처리 및 통신
+     * - case 3: 온도 처리 및 CAN 보고
+     * - case 4: 평균 계산 및 팬 제어
+     * 
+     * 총 처리 시간: 기존과 동일, case 1에서만 최적화 테스트
+     */
+    switch(controlPhase)
     {
-    case 0: //20KHz
-        rx_adc_data_buf_ave = (float32)(rx_adc_data_buf_sum * 0.2f);
-        rx_adc_data_buf_sum = 0;
-        fADC_voltage = v_ref * (float) rx_adc_data_buf_ave * (float)(0.0000152) - 0.1945;// (float)((1ul << 16))
-        Vo_sen = fADC_voltage * 250 * 1.04047;// 1.04047 = 1/0.9611;
-        Vo = Vo_sen; // Vo 변수는 제어기에 사용
+        //---------------------------------------------------------------------
+        // Case 0: 전압 센싱 (20kHz)
+        //---------------------------------------------------------------------
+        case 0:
+            // ADC 평균값 계산 (5회 평균)
+            rx_adc_data_buf_ave = (float32)(currentAdcSum * 0.2f);
+            currentAdcSum = 0;
+            
+            // 전압 센싱 및 스케일링
+            fADC_voltage = v_ref * (float)rx_adc_data_buf_ave * 0.0000152f - 0.1945f;
+            Vo_sen = fADC_voltage * 250.0f * 1.04047f; // 보정계수 적용
+            Vo = Vo_sen; // 제어기용 전압값
+            
+            controlPhase++;
+            break;
 
-        PI_Controller_high();  // PI 제어기,  battery charger/discharger mode
+        //---------------------------------------------------------------------  
+        // Case 1: 통합 PI 제어 (충전/방전 자동 선택) - **테스트용**
+        //---------------------------------------------------------------------
+        case 1:
+            // 통합 PI 제어기 실행 (I_com 부호에 따라 자동 모드 선택)
+            PIControlUnified();
+            
+            controlPhase++;
+            break;
 
-//        for test code, 구형파
-//        if  (IcomTemp >= 2000) slop = -100;
-//        if  (IcomTemp <= 1000) slop = +100;
-//        IcomTemp = IcomTemp + slop;
+        //---------------------------------------------------------------------
+        // Case 2: 전류 지령 처리 및 통신 (20kHz)
+        //---------------------------------------------------------------------
+        case 2:
+            // 전류 지령 제한 처리
+            if      (I_com >  I_ss) I_com_1 = I_ss;
+            else if (I_com < -I_ss) I_com_1 = -I_ss;
+            else                    I_com_1 = I_com;
 
-//        for test code, 삼각파
-//        if     (slop <  90) IcomTemp = 0;
-//        else if(slop < 100) IcomTemp = 4000;
-//        else                slop = 0;
-//        slop++;
+            // PI 출력 제한 적용
+            if      (I_com_1 > Voh_err_PI_out) I_com_set = Voh_err_PI_out;
+            else if (I_com_1 < Vol_err_PI_out) I_com_set = Vol_err_PI_out;
+            else                               I_com_set = I_com_1;
 
-//        IcomTemp = (((I_com_set - 0.5) * 0.5 * 50)* 0.5 + 2000) * 1.0005; // 방전 모드(Icom_Pos 80A) DA 출력 4.000V. 회생 모드(Icom_Neg -80A) DA 출력 0.000V
-//        SpiaRegs.SPITXBUF = 0xC000 | (test_out_A & 0xfff); // test code
-//        SciaRegs.SCIFFTX.bit.TXFFIENA = 1;      // SCI 송신 FIFO 인터럽트 Enable
-         _100khz_count++;
-        break;
+            // 소프트 스타트 처리
+            I_ss += I_MAX * 0.00005f;
+            if (I_ss > I_MAX) I_ss = I_MAX;
 
-    case 1:
-        PI_Controller_low();  // PI 제어기,  battery charger/discharger mode
-        _100khz_count++;
-        break;
+            // 방전 FET 제어 (Run 신호에 따른 1초 지연)
+            if (!Run) {
+                I_ss = 0;
+            }
 
-    case 2: // 온도, 20khz 마다
-        //               if(GpioDataRegs.GPBDAT.bit.GPIO39) // DAB_ok 일때만 buck_on 되어야 한다.
-        if      (I_com >  I_ss) I_com_1 = I_ss;
-        else if (I_com < -I_ss) I_com_1 = -I_ss;
-        else                    I_com_1 = I_com;
-
-        if      (I_com_1 > Voh_err_PI_out) I_com_set = Voh_err_PI_out;
-        else if (I_com_1 < Vol_err_PI_out) I_com_set = Vol_err_PI_out;
-        else                               I_com_set = I_com_1;
-
-        I_ss += I_MAX * 0.00005f;
-        if (I_ss > I_MAX ) I_ss = I_MAX;
-
-
-
-//            if (!Run) {
-//
-//                I_ss = 0;
-//                Run_on_count = 0;    // Reset Run-on counter
-//                GpioDataRegs.GPADAT.bit.GPIO19 = 0; // FET ON immediately
-//
-//            }
-//
-//            else {  // When Run == 1
-//                Run_on_count++; // Increase Run-on counter
-//
-//                if (Run_on_count >= 20000) { // After 1 sec
-//                    Run_on_count = 20000;  // Limit max value
-//                    GpioDataRegs.GPADAT.bit.GPIO19 = 1; // FET OFF after delay
-//
-//                }
-//            }
-
-
-            if (!Run) I_ss = 0;
-
-            if (Run)
-            {
-                if(Run_on_count++>= 20000) // Discharge FET OFF After 1sec From Run ON
-                {
+            if (Run) {
+                if(Run_on_count++ >= 20000) { // 1초 후 방전 FET OFF
                     Run_on_count = 20000;
-                    GpioDataRegs.GPADAT.bit.GPIO19 = 1; //GPIO19 = 1 : Discharge FET OFF
+                    GpioDataRegs.GPADAT.bit.GPIO19 = 1; // 방전 FET OFF
                 }
-            }
-            else
-            {
+            } else {
                 Run_on_count = 0;
-                GpioDataRegs.GPADAT.bit.GPIO19 = 0; //GPIO19 = 0 : Discharge FET ON, NO Delay
+                GpioDataRegs.GPADAT.bit.GPIO19 = 0; // 방전 FET ON (지연 없음)
             }
 
-//     temp = (((I_com_set - 0.5f) * 0.5f * 50)* 0.5f + 2000) * 1.0005f;  // 20khz
-       IcomTemp = (I_com_set * 50 * 0.5f + 2000) * 1.0005f;  // 20khz
+            // DAC 출력값 계산 및 제한
+            IcomTemp = (I_com_set * 25.0f + 2000.0f) * 1.0005f;
+            if (IcomTemp > 4095) IcomTemp = 4095; // DAC 상한 제한
+            spi_tx_temp = IcomTemp;
 
-       if (IcomTemp > 4095) IcomTemp = 4095;    // DA 출력 상한 제한
-       spi_tx_temp = IcomTemp;     //20khz 마다 업데이트
+            // RS485 통신 데이터 준비 및 전송
+            gSciTxBuf[1] = (UCHAR)(IcomTemp & 0x00FF);
+            gSciTxBuf[2] = (UCHAR)((IcomTemp >> 8) & 0xFF);
 
-       gSciTxBuf[1] = (UCHAR)(IcomTemp & 0x00FF);;
-       gSciTxBuf[2] = (UCHAR)((IcomTemp >> 8) & 0xFF);
+            for (i = 0; i < 4; i++) {
+                SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF; // 모든 슬레이브로 전류 지령 전송
+            }
 
-       for (i = 0; i < 4; i++)
-       {
-           SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF;  // 모든 슬레이브 보드로 전류 지령 전송
-       }
-        // fan_pwm을 off 하고 DAB_ok는 약간의 지연후에 off된다.
-    //softstart 함수로
-       if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1; // 평균한 값을 20khz 마다 체크. fault 표시 필요
+            // 과전압 보호
+            if(Vo >= OVER_VOLTAGE) over_voltage_flag = 1;
 
-       if (hw_fault == 0 && over_voltage_flag == 0 && filtered_switch_input == 1) Run = 1;
-//       if ( !hw_fault && !over_voltage_flag && filtered_switch_input) Run = 1;
-//       if ( !(hw_fault || over_voltage_flag) && filtered_switch_input) Run = 1;
+            // 운전 조건 확인 (하드웨어 폴트, 과전압, 스위치 입력)
+            if (hw_fault == 0 && over_voltage_flag == 0 && power_switch == 1) {
+                Run = 1;
+            }
 
+            // Buck 인에이블 제어
+            if(Run) GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
+            else    GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
 
-       if(Run)     GpioDataRegs.GPADAT.bit.GPIO17 = 0;
-       else        GpioDataRegs.GPADAT.bit.GPIO17 = 1; //Buck_Enable
+            controlPhase++;
+            break;
 
-        _100khz_count++;
-        break;
+        //---------------------------------------------------------------------
+        // Case 3: 온도 처리 및 CAN 보고 (20kHz)
+        //---------------------------------------------------------------------
+        case 3:
+            // 온도 센서 처리
+            Temp_ad_sen = (float32)(Temp_ad / 4095.0f * 3.0f);
+            Temp_ad_sen_1 = (float32)(Temp_ad_sen * 5.0f / 3.0f); // 전압 변환
+            In_Temp = (float32)((Temp_ad_sen_1 * 20.4f) + 1.4f);  // 온도 변환
 
-    case 3:
-        Temp_ad_sen = (float32) (Temp_ad / 4095 * 3.0);
-        Temp_ad_sen_1 = (float32) (Temp_ad_sen * 5 / 3);  // Temp_ad_sen_1 == V
-        In_Temp = (float32) ((Temp_ad_sen_1 * 20.4) + 1.4);
+            // 전압 평균값 계산
+            CalcVoltageAverage();
+            
+            // CAN 보고 타이밍 관리 (0.05ms 단위로 카운트)
+            if(can_report_counter++ >= can_report_interval) {
+                can_report_counter = 0;
+                can_report_flag = 1; // 메인 루프에서 처리
+            }
+            
+            controlPhase++;
+            break;
 
-        Calculating_voltage_average_and_monitoring_average();
-        
-        // CAN 보고 타이밍 관리 (0.1ms 단위로 카운트) - case 3에서 처리
-        if(can_report_counter++ >= can_report_interval) {
-            can_report_counter = 0;
-            can_report_flag = 1;  // 메인 루프에서 처리
-        }
-        
-        _100khz_count++;
-        break;
+        //---------------------------------------------------------------------
+        // Case 4: 평균 계산 및 팬 제어 (20kHz)
+        //---------------------------------------------------------------------
+        case 4:
+            _50us_flag = 1; // 20kHz 플래그 설정
 
-    case 4:
-        _50us_flag = 1; // 20khz flag on
+            // 10ms 타이머 (디지털 입력 처리용)
+            if(timer_10ms++ >= 200) { // 200 * 0.05ms = 10ms
+                timer_10ms = 0;
+                ReadGpioInputs(); // DIP 스위치 및 스위치 입력 처리
+            }
 
-        if(_10ms_timer++ >= 200)
-        {
-           _10ms_timer = 0;
+            // 전류 평균 계산 및 팬 PWM 제어
+            CalcCurrentAverage();
+            ControlFanPwm();
+            
+            controlPhase = 0; // 카운터 리셋
+            break;
 
-           Digital_Input();
-
-        }
-
-        Calculating_current_average_and_monitoring_average();
-        FAN_pwm_service();
-        _100khz_count = 0;
-        break;
-
-    default:
-        break;
-
+        //---------------------------------------------------------------------
+        // Default: 에러 방지
+        //---------------------------------------------------------------------
+        default:
+            controlPhase = 0; // 안전을 위한 리셋
+            break;
     }
 
-if ( _100khz_count > 4 ) _100khz_count = 0;
+    // 카운터 범위 보호
+    if (controlPhase > 4) controlPhase = 0;
 
-// Practice
+    //=========================================================================
+    // 4. 하드웨어 폴트 감지 (GPIO 기반)
+    //=========================================================================
+    GPIO_in_1 = GPIO_in;
+    GPIO_in = !GpioDataRegs.GPBDAT.bit.GPIO39; // DAB_OK 신호 반전
 
-         GPIO_in_1 = GPIO_in;
-         GPIO_in = !GpioDataRegs.GPBDAT.bit.GPIO39;
+    if      (GPIO_in == 1 && GPIO_in_1 == 1) hw_fault = 1; // 연속 폴트 감지
+            else if (power_switch == 0)      hw_fault = 0; // 스위치 OFF시 폴트 해제
 
-         if      (GPIO_in == 1 && GPIO_in_1 == 1) hw_fault = 1;
-         else if (filtered_switch_input     == 0) hw_fault = 0;
+    //=========================================================================
+    // 5. DAC 출력 및 SPI 정리
+    //=========================================================================
+    // DAC1 A채널에 전류 지령 출력 (12비트, 0~4095)
+    SpiaRegs.SPITXBUF = 0xC000 | (spi_tx_temp & 0xFFF);
 
-    //증폭 관련 스케일 저항 부분은 0.1% 급을 사용해야 한다.
-    SpiaRegs.SPITXBUF = 0xC000 | (spi_tx_temp & 0xfff); // DAC1 A write, fast 100khz 마다
-//    SpiaRegs.SPITXBUF = 0xC000 | (test_dac & 0xfff); // DAC1 A write, fast 100khz 마다
+    ADC1_DS(); // ADC1_CS 비활성화
 
-//    Vo_sen = (float32) (Vo_ad - 162) * 1200 / 4095; // adc 3v -> 4095, adc 3v : 1200
-
-    ADC1_DS(); // ADC1_CS Deactivate
-
-    // Clear INT flag for this timer
-    EPwm3Regs.ETCLR.bit.INT = 1;
-//    led3OFF();
-    // Acknowledge this interrupt to receive more interrupts from group 3
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
+    //=========================================================================
+    // 6. 인터럽트 정리
+    //=========================================================================
+    EPwm3Regs.ETCLR.bit.INT = 1;           // 인터럽트 플래그 클리어
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP3; // PIE ACK
 }
 
-__interrupt void adc_isr(void)
-{
+__interrupt void adc_isr(void) {
     EALLOW;
     //SysCtrlRegs.WDKEY = 0x0055;
     SysCtrlRegs.WDKEY = 0x00AA; // Feed Dog with one Key, the other in Main
                                 // Dog runs with the highest rate of OSC/512/2^8 = 686 Hz
     EDIS;
-// ADC conversions
-// SOC0 시작
+    
+    // ADC conversions - SOC0 시작
     AdcRegs.ADCSOCFRC1.all = 0x07; // SOC0, SOC1, SOC2
 
-    Temp_ad = AdcResult.ADCRESULT0;
-    Io_ad = AdcResult.ADCRESULT1;
-    Vo_ad = AdcResult.ADCRESULT2;
+    Temp_ad = AdcResult.ADCRESULT0;  // 온도 ADC 결과
+    currentAdc = AdcResult.ADCRESULT1;    // 전류 ADC 결과
+    Vo_ad = AdcResult.ADCRESULT2;    // 전압 ADC 결과
 
-    AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1; //Clear ADCINT1 flag to reinitialize for next SOC
-
+    AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1; // Clear ADCINT1 flag to reinitialize for next SOC
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;   // Acknowledge interrupt to PIE
     return;
 }
 
+void PIControlHigh(void) {
+    Voh_Err = Voh_com - Vo;                     // 고전압 에러 계산
+    Voh_KP_out = Kp * Voh_Err;                  // P term (비례 제어)
 
-void modbus_parse(void)
-{
-    Io_sen_total.fValue = ((Io_avg + Io_sense1.fValue + Io_sense2.fValue + Io_sense3.fValue + Io_sense4.fValue + Io_sense5.fValue + Io_sense6.fValue + Io_sense7.fValue + Io_sense8.fValue + Io_sense9.fValue));// 출력 전류
-
-    usRegInputBuf[4] = (Uint16) (Io_sen_total.ulValue);
-    usRegInputBuf[5] = (Uint16) (Io_sen_total.ulValue >> 16);
-
-//    usRegInputBuf[11] =  (Uint16)Vo_sen.ulValue;// 출력 전압
-
-    usRegInputBuf[10] = (Uint16) (Vo_sen_avg.ulValue);
-    usRegInputBuf[11] = (Uint16) (Vo_sen_avg.ulValue >> 16);
-
-   if     (usRegHoldingBuf[0] & 0x0008)  start_stop = START; //
-   else if(usRegHoldingBuf[0] & 0x0010)  start_stop = STOP;  //
-
-   usRegHoldingBuf[2] = 64; // force value
-   eChargeMode = (eCharge_DisCharge_Mode)usRegHoldingBuf[2];
-
-   switch(eChargeMode){                // 전류는 현재 UI가 -지령을 받을 수 없으므로 최대 160A를 받아서 -80A 해서 사용(임시로)
-   case ElectronicLoad_CV_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 2
-   case ElectronicLoad_CC_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 4
-   case ElectronicLoad_CR_Mode        : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]);
-                                        uf_resistance.ulValue = ( (Uint32)usRegHoldingBuf[9] + ((Uint32)usRegHoldingBuf[10]<<16) ); break; // 8
-   case PowerSupply_CV_Mode           : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 16
-   case PowerSupply_CC_Mode           : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 32
-   case Battery_Charg_Discharg_CC_Mode: V_high_limit   = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); V_low_limit = usRegHoldingBuf[12];
-                                        Voh_com = V_high_limit; Vol_com = V_low_limit; break; // 64
-   case As_a_Battery_CV_Mode          : Vout_Reference = usRegHoldingBuf[5]; Iout_Reference = ((int16)usRegHoldingBuf[7]); break; // 128
-   default :
-       break;
-   }
-
-//       uf_resistance = uf_resistance.fValue;
-    UI_Iout_command.ulValue = ( (Uint32)usRegHoldingBuf[7] + ((Uint32)usRegHoldingBuf[8]<<16) );
-
-    Icom_temp = UI_Iout_command.fValue / MODULE_NUM;
-//    Icom_temp = Iref_temp;
-
-    if     (Icom_temp >  I_MAX) Icom_temp =  I_MAX; // detect_module_num * 80
-    else if(Icom_temp < -I_MAX) Icom_temp = -I_MAX;
-
-    I_com = Icom_temp;
-}
-
-
-void PI_Controller_high(void)
-{
-    Voh_Err = Voh_com - Vo;
-    Voh_KP_out  = Kp * Voh_Err;             //P term
-
-    KI_out_old = Ki * Tsampl * Voh_Err;     //I term  Tsampl=50E-6 (50us)
+    KI_out_old = Ki * Tsampl * Voh_Err;         // I term (적분 제어) Tsampl=50E-6 (50us)
     Voh_KI_out = Voh_KI_out + KI_out_old;
 
+    // 적분 출력 제한 (Anti-windup)
     if      (Voh_KI_out >  I_com_1) Voh_KI_out = I_com_1; // +
     else if (Voh_KI_out <       -2) Voh_KI_out = -2;
 
+    // PI 출력 계산
     Voh_err_PI_out = Voh_KP_out + Voh_KI_out;
 
+    // PI 출력 제한
     if      (Voh_err_PI_out >  I_com_1) Voh_err_PI_out = I_com_1; // 80 * detect_module_num
     else if (Voh_err_PI_out <       -2) Voh_err_PI_out =  -2;
 }
 
-void PI_Controller_low(void)
-{
-    Vol_Err = Vol_com - Vo;
-    Vol_KP_out = Kp * Vol_Err;              //P term
+void PIControlLow(void) {
+    Vol_Err = Vol_com - Vo;                     // 저전압 에러 계산
+    Vol_KP_out = Kp * Vol_Err;                  // P term (비례 제어)
 
-    KI_out_old = Ki * Tsampl * Vol_Err;     //I term  Tsampl=50E-6 (50us)
+    KI_out_old = Ki * Tsampl * Vol_Err;         // I term (적분 제어) Tsampl=50E-6 (50us)
     Vol_KI_out = Vol_KI_out + KI_out_old;
 
+    // 적분 출력 제한 (Anti-windup)
     if      (Vol_KI_out >       2) Vol_KI_out = 2;
     else if (Vol_KI_out < I_com_1) Vol_KI_out = I_com_1;
 
+    // PI 출력 계산
     Vol_err_PI_out = Vol_KP_out + Vol_KI_out;
 
+    // PI 출력 제한
     if      (Vol_err_PI_out >       2) Vol_err_PI_out = 2;
     else if (Vol_err_PI_out < I_com_1) Vol_err_PI_out = I_com_1;
 }
 
-
-__interrupt void scia_txFifo_isr(void)
-{
-    Uint32 i;
-    for (i = 0; i < 4; i++)
-        SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF;
-
-    SciaRegs.SCIFFTX.bit.TXFFIENA   = 0;
-    SciaRegs.SCIFFTX.bit.TXFFINTCLR = 1;        /* Clear Interrupt flag */
-
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;     /* Acknowledge interrupt to PIE */
-    return ;
-}
-
-void Digital_Input(void) // 글리치 제거 프로그램 할 것
-{
-//    DigitalIn.all = 0;
-    DigitalIn.bit.Bit0 = GpioDataRegs.GPADAT.bit.GPIO11;   // GPIO for DIP Switch_1 net_name GPIO5
-    DigitalIn.bit.Bit1 = GpioDataRegs.GPADAT.bit.GPIO10;   // GPIO for DIP Switch_2 net_name GPIO6
-    DigitalIn.bit.Bit2 = GpioDataRegs.GPBDAT.bit.GPIO55;   // GPIO for DIP Switch_3 net_name GPIO7
-    DigitalIn.bit.Bit3 = GpioDataRegs.GPBDAT.bit.GPIO41;   // GPIO for DIP Switch_4 net_name GPIO8
-
-    DigitalIn_old_old.all = DigitalIn_old.all;
-    DigitalIn_old.all = DigitalIn.all;
-
-    //글리치 판단해서 세이브
-    if(DigitalIn_old_old.all == DigitalIn_old.all == DigitalIn.all)
-    Board_ID = DigitalIn.all;
-
-    switch_1_old_old = switch_1_old; switch_1_old = switch_1; switch_1 = GpioDataRegs.GPBDAT.bit.GPIO54; // 30ms
-    if     (switch_1_old_old == 1 && switch_1_old == 1 && switch_1 == 1) filtered_switch_input = 1;
-    else if(switch_1_old_old == 0 && switch_1_old == 0 && switch_1 == 0) filtered_switch_input = 0;
-}
-
-
-void Calculating_current_average_and_monitoring_average(void)
-{
-    Io_ad_avg = Io_ad_sum * 0.2f;
-    Io_ad_sum = 0;
-
-    Io_sen_real =  (Io_ad_avg - 2048) * 0.048828125f;//0.048851978f; // 100 / 2048; // adc 3v -> 4095, 0A : 1.5V, +100A : 3V, -100A : 0V
-    Io_sen_sum += Io_sen_real;
-
-    if (Current_Average++ == MON_MAXCNT) //  FOR MONITORING
-    {
-      Io_sen.fValue = Io_sen_sum * MON_MAXCNT_REV; //200번 평균;
-      Io_sen_sum = 0;
-      Current_Average = 0;
+/**
+ * @brief 통합 PI 제어기 (충전/방전 자동 선택)
+ * 전류 지령값 부호에 따라 충전(+) 또는 방전(-) 모드 자동 선택
+ * 50% 계산량 절약 및 코드 중복 제거
+ */
+void PIControlUnified(void) {
+    float32 error, kp_out, pi_out;
+    float32 voltage_cmd, upper_limit, lower_limit;
+    static float32 ki_accumulator = 0; // 적분기 상태 (충전/방전 공용)
+    
+    if (I_com >= 0) {
+        // =====================================================================
+        // 충전 모드 (I_com >= 0): 기존 PIControlHigh 로직
+        // =====================================================================
+        voltage_cmd = Voh_com;      // 고전압 지령
+        upper_limit = I_com_1;      // 상한: 양의 전류 제한
+        lower_limit = -2;           // 하한: 최소 음의 값
+        
+        // 기존 Voh_ 변수들 업데이트 (호환성 유지)
+        Voh_Err = error = voltage_cmd - Vo;
+        Voh_KP_out = kp_out = Kp * error;
+        
+        KI_out_old = Ki * Tsampl * error;
+        Voh_KI_out = ki_accumulator = ki_accumulator + KI_out_old;
+        
+        // 적분 출력 제한 (Anti-windup)
+        if      (ki_accumulator > upper_limit) ki_accumulator = upper_limit;
+        else if (ki_accumulator < lower_limit) ki_accumulator = lower_limit;
+        Voh_KI_out = ki_accumulator;
+        
+        // PI 출력 계산 및 제한
+        Voh_err_PI_out = pi_out = kp_out + ki_accumulator;
+        if      (pi_out > upper_limit) Voh_err_PI_out = upper_limit;
+        else if (pi_out < lower_limit) Voh_err_PI_out = lower_limit;
+        
+    } else {
+        // =====================================================================
+        // 방전 모드 (I_com < 0): 기존 PIControlLow 로직
+        // =====================================================================
+        voltage_cmd = Vol_com;      // 저전압 지령  
+        upper_limit = 2;            // 상한: 최대 양의 값
+        lower_limit = I_com_1;      // 하한: 음의 전류 제한
+        
+        // 기존 Vol_ 변수들 업데이트 (호환성 유지)
+        Vol_Err = error = voltage_cmd - Vo;
+        Vol_KP_out = kp_out = Kp * error;
+        
+        KI_out_old = Ki * Tsampl * error;
+        Vol_KI_out = ki_accumulator = ki_accumulator + KI_out_old;
+        
+        // 적분 출력 제한 (Anti-windup)
+        if      (ki_accumulator > upper_limit) ki_accumulator = upper_limit;
+        else if (ki_accumulator < lower_limit) ki_accumulator = lower_limit;
+        Vol_KI_out = ki_accumulator;
+        
+        // PI 출력 계산 및 제한
+        Vol_err_PI_out = pi_out = kp_out + ki_accumulator;
+        if      (pi_out > upper_limit) Vol_err_PI_out = upper_limit;
+        else if (pi_out < lower_limit) Vol_err_PI_out = lower_limit;
     }
 }
 
-void Calculating_voltage_average_and_monitoring_average(void)
-{
-    Vo_sen_sum_mon += Vo_sen;
+void ParseModbusData(void) {
+    // 총 출력 전류 계산 (마스터 + 모든 슬레이브)
+    totalCurrentSensor.f = ((currentAvg + currentSense1.f + currentSense2.f + currentSense3.f + currentSense4.f
+                        + currentSense5.f + currentSense6.f + currentSense7.f + currentSense8.f + currentSense9.f));
 
-    if (MonitoringCount++ == 10000) //  FOR MONITORING
+    // Modbus Input Register에 전류값 저장 (32bit float -> 2개 16bit)
+    usRegInputBuf[4] = (Uint16) (totalCurrentSensor.u);
+    usRegInputBuf[5] = (Uint16) (totalCurrentSensor.u >> 16);
+
+    // Modbus Input Register에 전압값 저장
+    usRegInputBuf[10] = (Uint16) (voltageSensorAvg.u);
+    usRegInputBuf[11] = (Uint16) (voltageSensorAvg.u >> 16);
+
+    // 시작/정지 명령 처리
+    if     (usRegHoldingBuf[0] & 0x0008)  start_stop = START;
+    else if(usRegHoldingBuf[0] & 0x0010)  start_stop = STOP;
+
+    // 충전/방전 모드 설정 (강제로 64 설정)
+    usRegHoldingBuf[2] = 64; // force value
+    eChargeMode = (eCharge_DisCharge_Mode)usRegHoldingBuf[2];
+
+    // 운전 모드에 따른 설정값 처리
+    switch(eChargeMode) {
+        case ElectronicLoad_CV_Mode:        // 전자부하 CV 모드
+        case ElectronicLoad_CC_Mode:        // 전자부하 CC 모드
+        case PowerSupply_CV_Mode:           // 전원공급 CV 모드
+        case PowerSupply_CC_Mode:           // 전원공급 CC 모드
+        case As_a_Battery_CV_Mode:          // 배터리 시뮬레이션 CV 모드
+            Vout_Reference = usRegHoldingBuf[5]; 
+            Iout_Reference = ((int16)usRegHoldingBuf[7]); 
+            break;
+            
+        case ElectronicLoad_CR_Mode:        // 전자부하 CR 모드
+            Vout_Reference = usRegHoldingBuf[5]; 
+            Iout_Reference = ((int16)usRegHoldingBuf[7]);
+            loadResistance.u = ((Uint32)usRegHoldingBuf[9] + ((Uint32)usRegHoldingBuf[10]<<16));
+            break;
+            
+        case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드
+            Voh_com = usRegHoldingBuf[5];
+            Vol_com = usRegHoldingBuf[12];
+            Iout_Reference = ((int16)usRegHoldingBuf[7]);
+            break;
+            
+        default:
+            break;
+    }
+
+    // UI 전류 지령값 추출 (32bit float)
+    uiCurrentCommand.u = ((Uint32)usRegHoldingBuf[7] + ((Uint32)usRegHoldingBuf[8]<<16));
+
+    // 모듈 개수로 나눈 전류 지령 계산
+    currentCmdTemp = uiCurrentCommand.f / MODULE_NUM;
+
+    // 전류 지령 제한 (-80A ~ +80A)
+    if     (currentCmdTemp >  I_MAX) currentCmdTemp =  I_MAX;
+    else if(currentCmdTemp < -I_MAX) currentCmdTemp = -I_MAX;
+
+    // 최종 전류 지령 설정
+    I_com = currentCmdTemp;
+}
+
+void CalcCurrentAverage(void) {
+    // C89 변수 선언을 맨 앞에 위치
+    float32 currentAdcAvg;
+    float32 currentActual;
+    
+    // ADC 평균값 계산 (5회 평균)
+    currentAdcAvg = currentAdcSum * 0.2f;
+    currentAdcSum = 0;
+
+    // ADC 값을 실제 전류값으로 변환
+    // ADC 3V -> 4095, 0A : 1.5V, +100A : 3V, -100A : 0V
+    currentActual = (currentAdcAvg - 2048) * 0.048828125f; // 100 / 2048
+
+    // 모니터링용 평균 계산을 위한 누적
+    currentSensorSum += currentActual;
+
+    // 10000번 평균 계산 완료 시 최종 평균값 저장
+    if (currentAvgCount++ == MON_MAXCNT)
     {
-        Vo_Mean = Vo_sen_sum_mon * 0.0001;
-        Vo_sen_sum_mon = 0.;
-        MonitoringCount = 0;
-        Vo_sen_avg.fValue = Vo_Mean; // Monitor value
+        currentSensor.f = currentSensorSum * MON_MAXCNT_REV; // 10000번 평균
+        currentSensorSum = 0;
+        currentAvgCount = 0;
     }
 }
 
+void CalcVoltageAverage(void) {
+    // 전압 센서값 누적
+    voltageSumMonitor += Vo_sen;
 
-void FAN_pwm_service(void)
-{
-    //fan pwm service
-//            unsigned int fan_pwm_duty1 = 0;
-
-            fan_pwm_duty =  0.8 * (In_Temp - 36)/(52.4f - 36) + 0.2; // In_Temp가 36도씨 일때 20%, 52.4도씨 일때 100%
-
-            if     (fan_pwm_duty < 0.15) fan_pwm_duty = 0.15; //최소 15%로 제한
-            else if(fan_pwm_duty > 0.9 ) fan_pwm_duty = 0.9; //최대 90%로 제한
-
-            EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k; //fan, PWM_PERIOD_10k
-
-//            fan_pwm_out_trip_old = fan_pwm_out_trip;
+    // 10000번 평균 계산 완료 시 최종 평균값 저장
+    if (voltageCount++ == 10000)
+    {
+        voltageMean = voltageSumMonitor * 0.0001;      // 평균값 계산
+        voltageSumMonitor = 0.;                         // 누적값 초기화
+        voltageCount = 0;                                // 카운터 초기화
+        voltageSensorAvg.f = voltageMean;              // 모니터링용 평균값 저장
+    }
 }
 
-void error(void)
-{
+void ControlFanPwm(void) {
+    fan_pwm_duty = 0.8 * (In_Temp - 36) / (52.4f - 36) + 0.2;
+
+    if     (fan_pwm_duty < 0.15) fan_pwm_duty = 0.15;
+    else if(fan_pwm_duty > 0.9 ) fan_pwm_duty = 0.9;
+
+    EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k;
+}
+
+void SystemErrorHandler(void) {
    __asm("     ESTOP0"); // Test failed!! Stop!
     for (;;);
 }
@@ -1062,9 +979,7 @@ void error(void)
 //###########################################################################
 // CLA ISRs
 //###########################################################################
-__interrupt void cla1_task1_isr(void)
-{
-    // GpioDataRegs.GPACLEAR.bit.GPIO23 = 1;   //LED profiling
+__interrupt void cla1_task1_isr(void) {
     PieCtrlRegs.PIEACK.bit.ACK11 = 1;
 }
 
@@ -1072,24 +987,21 @@ __interrupt void cla1_task1_isr(void)
 // No more.
 //===========================================================================
 
-__interrupt void ecan0_isr(void)
-{        
-    // 수신 메일박스 체크 (MBOX30, 31)
+__interrupt void ecan0_isr(void) {      
     if (ECanaRegs.CANRMP.bit.RMP30 != 0) 
     {
-        ProcessCANCommand(30, 24);  // 수신: MBOX30, 송신: MBOX24
+        ProcessCANCommand(30, 24);
     }
     
-    // MBOX31 수신 확인
     if (ECanaRegs.CANRMP.bit.RMP31 != 0) 
     {
-        ProcessCANCommand(31, 25);  // 수신: MBOX31, 송신: MBOX25
+        ProcessCANCommand(31, 25);
     }
 
-    // 인터럽트 플래그 클리어
     ECanaRegs.CANGIF0.all = 0xFFFFFFFF;
     
-    // 인터럽트 확인 응답
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }
+
+
 

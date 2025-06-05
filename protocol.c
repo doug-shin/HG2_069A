@@ -30,6 +30,10 @@ extern volatile struct ECAN_REGS ECanaShadow;
 // CAN 메일박스 배열 포인터 (최적화를 위해 전역으로 선언)
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
 
+extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
+extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
+extern float32 currentAvg;  // 전류 (A)
+
 // 프로토콜 초기화 함수 - CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
 void InitProtocol(void) {
     // 기본 정보 초기화
@@ -288,7 +292,6 @@ void ProcessCANCommand(Uint32 isr_mbox, Uint32 ack_mbox)
  * MBOX16~23 사용
  */
 void SendCANReport(Uint32 mbox_num) {
-    Uint32 i;
     Uint32 wait_count;
     const Uint32 mbox_mask = 0x00FF0000;  // MBOX16~23 마스크 (비트 16~23)
     
@@ -321,7 +324,6 @@ void SendCANReport(Uint32 mbox_num) {
     
     // Online Data #6 - 운전 시간
     PUT_MBOX_UINT32(mbox_array[mbox_num +2], 0, protocol.fb_operation_time);
-    PUT_MBOX_UINT32(mbox_array[mbox_num +2], 4, 0);  // Reserved
     
     // Online Data #7 - PWM 오류 정보
     PUT_MBOX_UINT16(mbox_array[mbox_num +1], 0, protocol.pwm_hw_error);
@@ -424,8 +426,6 @@ void SendCANEndReport(Uint32 mbox_num) {
  */
 void UpdateCANFeedbackValues(void) {
     extern float32 Vo;      // 전압 (V)
-    extern float32 Io_avg;  // 전류 (A)
-    extern float32 t1_value; // 온도1 (°C)
     extern float32 In_Temp;  // 35kW 프로그램의 온도 값 (°C)
     static Uint16 operation_tick_counter = 0;
     static Uint16 cv_tick_counter = 0;
@@ -434,7 +434,7 @@ void UpdateCANFeedbackValues(void) {
     
     // 1. 기본 피드백 값 업데이트 (단위 변환: V->mV, A->mA, °C->0.1°C)
     protocol.fb_voltage = Vo * 1000.0f;       // V -> mV 변환
-    protocol.fb_current = Io_avg * 1000.0f;   // A -> mA 변환
+    protocol.fb_current = currentAvg * 1000.0f;   // A -> mA 변환
     protocol.fb_t1_temp = In_Temp * 10.0f;    // °C -> 0.1°C 변환
     
     // 2. 운전 시간 업데이트 (운전 중일 때만)
@@ -464,10 +464,13 @@ void UpdateCANFeedbackValues(void) {
     if (protocol.status == OPERATING) {
         capacity_tick_counter++;
         if (capacity_tick_counter >= 100) { // 1초마다
+            // C89 변수 선언을 블록 시작 부분으로 이동
+            float32 power_w, delta_wh;
+            
             capacity_tick_counter = 0;
             
             // 전류값을 Ah로 변환 (A -> mAh)
-            delta_capacity = Io_avg * 0.2777778f;  // A -> mAh, 1000/3600 = 0.2777778
+            delta_capacity = currentAvg * 0.2777778f;  // A -> mAh, 1000/3600 = 0.2777778
             
             // 충방전 용량 업데이트
             if (delta_capacity > 0) {
@@ -477,8 +480,8 @@ void UpdateCANFeedbackValues(void) {
             }
             
             // Wh 계산 (P = V * I)
-            float32 power_w = protocol.fb_voltage * 0.001f * Io_avg;  // W (mV -> V 변환)
-            float32 delta_wh = power_w * 0.0002777778f;  // Wh (1/3600 = 0.0002777778)
+            power_w = protocol.fb_voltage * 0.001f * currentAvg;  // W (mV -> V 변환)
+            delta_wh = power_w * 0.0002777778f;  // Wh (1/3600 = 0.0002777778)
             
             if (delta_wh > 0) {
                 protocol.fb_charge_wh += delta_wh;
@@ -558,15 +561,14 @@ void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
 
 // 운전 상태로 전환 함수
 void TransitionToRunning(void) {
-    extern UNIONFLOAT UI_Iout_command; // 전류 지령 값 (A 단위)
-    extern float32 Icom_temp; // 전류 지령 값 (A 단위)
+    extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
+    extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
     extern float32 V_com; // 전압 지령 값 (V 단위)
     extern float32 Power; // 파워 지령 값 (W 단위)
     extern float32 Voh_com, Vol_com; // 배터리 모드 전압 제한값
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
-    Buck_EN = 1;
     Run = 1;
     
     // 상태 변경
@@ -592,7 +594,7 @@ void TransitionToRunning(void) {
     
     // 단위 변환: mV -> V, mA -> A, mW -> W (곱셈 최적화)
     // 전류 지령 설정 (외부 변수에 저장)
-    Icom_temp = protocol.cmd_current * 0.001f; // mA -> A 변환
+    currentCmdTemp = protocol.cmd_current * 0.001f; // mA -> A 변환
     
     // 전압 지령 설정 (필요한 경우)
     V_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
@@ -612,15 +614,14 @@ void TransitionToRunning(void) {
 
 // 대기 상태로 전환 함수
 void TransitionToIdle(void) {
-    extern UNIONFLOAT UI_Iout_command; // 전류 지령 값
+    extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
-    Buck_EN = 0;
     Run = 0;
     
     // 전류 지령 0으로 설정
-    UI_Iout_command.fValue = 0.0f;
+    uiCurrentCommand.f = 0.0f;
     
     // 상태 변경
     module_state = STATE_IDLE;
@@ -643,8 +644,7 @@ void TransitionToIdle(void) {
 }
 
 // Heart Bit 타임아웃 체크 함수
-void CheckCANHeartBitTimeout(void)
-{
+void CheckCANHeartBitTimeout(void) {
     // 1ms마다 호출된다고 가정
     can_360_timeout_counter++;
     
