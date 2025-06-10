@@ -26,6 +26,11 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>F2806x_Adc.c</name>
+			<type>1</type>
+			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/device_support/f2806x/common/source/F2806x_Adc.c</locationURI>
+		</link>
+		<link>
 			<name>F2806x_CodeStartBranch.asm</name>
 			<type>1</type>
 			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/device_support/F2806x/common/source/F2806x_CodeStartBranch.asm</locationURI>
@@ -54,6 +59,11 @@
 			<name>F2806x_GlobalVariableDefs.c</name>
 			<type>1</type>
 			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/device_support/F2806x/headers/source/F2806x_GlobalVariableDefs.c</locationURI>
+		</link>
+		<link>
+			<name>F2806x_Gpio.c</name>
+			<type>1</type>
+			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/device_support/f2806x/common/source/F2806x_Gpio.c</locationURI>
 		</link>
 		<link>
 			<name>F2806x_Headers_nonBIOS.cmd</name>

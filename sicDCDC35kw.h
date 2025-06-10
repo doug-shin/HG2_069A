@@ -50,6 +50,9 @@ typedef union {
     unsigned long u;
 } UNIONFLOAT;
 
+// CAN 쉐도우 레지스터 정의
+extern volatile struct ECAN_REGS ECanaShadow;
+
 // 충전/방전 모드 열거형
 typedef enum {
     No_Selection                   =   0,

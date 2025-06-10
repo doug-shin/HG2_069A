@@ -71,26 +71,19 @@
 #include "modbus.h"
 #include "math.h"
 #include "protocol.h"
-#include "Terminal.h"
 
 // Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
 extern STATE module_state;            // 모듈 상태
+
+// CAN 쉐도우 레지스터 정의
+volatile struct ECAN_REGS ECanaShadow;
 
 void InitEPwm1(void);
 void InitEPwm3(void);
 void spi_init(void);
 void eCana_config (void);
 void stra_xmit(Uint8 *buff, Uint16 Length);
-
-
-#if _CAN_BUS_
-#include "CANpie.h"
-#include "CANpieTest.h"
-//extern struct ECAN_REGS ECanaShadow;
-unsigned long ulCanTRS = 0;  // Transmission Request Set
-unsigned long ulCanTRS_Prev = 0;
-#endif
 
 #pragma CODE_SECTION(scia_txFifo_isr, "ramfuncs");
 #pragma CODE_SECTION(cpuTimer1ExpiredISR, "ramfuncs");
