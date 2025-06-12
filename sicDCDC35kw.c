@@ -49,32 +49,19 @@
  */
 
 //###########################################################################
+#ifndef _MAIN_C_
 #define _MAIN_C_
 
-#define I_MAX (80)
-#define MODULE_NUM (1)   // 모듈 개수
-
-#define MON_MAXCNT        (10000.)                        // Monitoring Count for Summing data.
-#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // 평균 구할 때 나눗셈을 곱셈으로 하기 위해서
-
-#ifndef _CAN_BUS_
-#define _CAN_BUS_      ( 1 )
-#endif
-
+#include <string.h>
+#include <math.h>
 #include "DSP28x_Project.h"
-#include "F2806x_Cla_defines.h"
-#include "string.h"
-
 #include "sicDCDC35kw.h"
 #include "sicDCDC35kw_setting.h"
-
 #include "modbus.h"
-#include "math.h"
 #include "protocol.h"
 
-// Protocol 관련 외부 변수 선언
+// CAN Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
-extern STATE module_state;            // 모듈 상태
 
 // CAN 쉐도우 레지스터 정의
 volatile struct ECAN_REGS ECanaShadow;
@@ -106,11 +93,6 @@ __interrupt void scia_txFifo_isr(void);
 __interrupt void ecan0_isr(void);
 __interrupt void adc_isr(void);
 
-extern Uint16 Cla1funcsLoadStart;
-extern Uint16 Cla1funcsLoadEnd;
-extern Uint16 Cla1funcsRunStart;
-extern Uint16 Cla1funcsLoadSize;
-
 extern __interrupt void scibRxReadyISR( void );
 extern __interrupt void scibTxEmptyISR( void );
 extern __interrupt void cpuTimer1ExpiredISR( void );
@@ -120,8 +102,6 @@ extern USHORT usRegHoldingBuf[REG_HOLDING_NREGS];
 
 Uint16 type_size = 0;
 Uint16 cpu_timer0_cnt = 0, cpu_timer1_cnt = 0, cpu_timer2_cnt = 0;
-
-
 
 //PI
 float32 rx_adc_data_buf_ave = 0.0f;
@@ -133,11 +113,10 @@ Uint16 tx_count = 0, count_num = 100;
 #define STOP (0)
 #define START (1)
 
-#define OVER_VOLTAGE (1100)
-
-
-//기준 전압 전체 범위 출력 전압은 기준 전압의 두 배입니다.
-//SpiaRegs.SPITXBUF =
+//*****************************************************************************
+// DAC Reference Voltage Configuration
+// DAC output range is 0V to 2*Vref (e.g., 1.024V ref → 0~2.048V output)
+//*****************************************************************************
 #define FAST_REF1 0xD001 //내부 1.024V
 #define SLOW_REF1 0x9001
 #define FAST_REF2 0xD002 //내부 2.048V
@@ -160,10 +139,8 @@ Uint16 can_tx_flag = 0;
 
 Uint16 can_rx_fault_cnt[11], detect_module_num = 1;
 
-// CAN 메일박스 배열 포인터 (protocol.c 방식 적용)
+// CAN 메일박스 배열 포인터
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
-// 전류 센서 배열 (currentSense1~9를 배열처럼 접근하기 위한 포인터)
-static Uint32 *current_sense_array[10]; // 인덱스 0은 사용 안함
 
 Uint16 Run_on_count = 0;
 Uint16 timer_10ms = 0;
@@ -357,17 +334,10 @@ void main(void) {
     //=========================================================================
     ServiceDog(); // 워치독 리셋
     
-    // 전류 센서 포인터 배열만 초기화 (mbox_array는 캐스팅으로 바로 사용 가능)
-    current_sense_array[0] = 0; // 사용 안함
-    current_sense_array[1] = &currentSense1.u;
-    current_sense_array[2] = &currentSense2.u;
-    current_sense_array[3] = &currentSense3.u;
-    current_sense_array[4] = &currentSense4.u;
-    current_sense_array[5] = &currentSense5.u;
-    current_sense_array[6] = &currentSense6.u;
-    current_sense_array[7] = &currentSense7.u;
-    current_sense_array[8] = &currentSense8.u;
-    current_sense_array[9] = &currentSense9.u;
+    // 전류 센서 배열 초기화 (인덱스 0은 사용 안함)
+    for (i = 0; i < 10; i++) {
+        currentSense[i].f = 0.0f;
+    }
     
     EALLOW;
     SysCtrlRegs.WDCR = 0x0028; // 워치독 활성화
@@ -419,17 +389,17 @@ void main(void) {
             // CAN 메일박스 상태 읽기 (성능 최적화)
             rmp_status = ECanaRegs.CANRMP.all & 0x000003FE; // MBOX1~9
             
-            // 슬레이브 모듈별 전류값 수신 처리 (루프로 간단화)
+            // 슬레이브 모듈별 전류값 수신 처리 (배열 인덱스 직접 사용)
             for(i = 1; i <= 9; i++) {
                 if (rmp_status & (1 << i)) {
-                    // CAN 데이터 수신됨 (구조체 캐스팅으로 배열 접근)
-                    *current_sense_array[i] = mbox_array[i].MDL.all; 
+                    // CAN 데이터 수신됨 (배열에 직접 저장)
+                    currentSense[i].u = mbox_array[i].MDL.all; 
                     ECanaRegs.CANRMP.all = (1 << i); // 해당 비트만 클리어
                     can_rx_fault_cnt[i] = 0;
                 } else {
                     // CAN 데이터 수신 안됨 (타임아웃 처리)
                     if(can_rx_fault_cnt[i]++ >= 10000) {
-                        *current_sense_array[i] = 0; 
+                        currentSense[i].u = 0; 
                         can_rx_fault_cnt[i] = 10000;
                     }
                 }
@@ -793,71 +763,90 @@ void PIControlLow(void) {
 }
 
 /**
- * @brief 통합 PI 제어기 (충전/방전 자동 선택)
- * 전류 지령값 부호에 따라 충전(+) 또는 방전(-) 모드 자동 선택
+ * @brief 통합 PI 제어 함수
+ * 충전/방전 모드를 자동 선택하여 전압 제어 수행
  * 50% 계산량 절약 및 코드 중복 제거
+ * 충전/방전별 독립적인 적분기 상태 유지로 bumpless transfer 구현
  */
 void PIControlUnified(void) {
     float32 error, kp_out, pi_out;
     float32 voltage_cmd, upper_limit, lower_limit;
-    static float32 ki_accumulator = 0; // 적분기 상태 (충전/방전 공용)
+    static float32 ki_accumulator_charge = 0;     // 충전용 적분기 상태
+    static float32 ki_accumulator_discharge = 0;  // 방전용 적분기 상태
     
     if (I_com >= 0) {
         // =====================================================================
         // 충전 모드 (I_com >= 0): 기존 PIControlHigh 로직
         // =====================================================================
-        voltage_cmd = Voh_com;      // 고전압 지령
-        upper_limit = I_com_1;      // 상한: 양의 전류 제한
-        lower_limit = -2;           // 하한: 최소 음의 값
+        voltage_cmd = Voh_com;          // 고전압 지령
+        upper_limit = I_com_1;          // 상한: 양의 전류 제한
+        lower_limit = -2;               // 하한: 최소 음의 값
         
         // 기존 Voh_ 변수들 업데이트 (호환성 유지)
         Voh_Err = error = voltage_cmd - Vo;
         Voh_KP_out = kp_out = Kp * error;
         
         KI_out_old = Ki * Tsampl * error;
-        Voh_KI_out = ki_accumulator = ki_accumulator + KI_out_old;
+        ki_accumulator_charge += KI_out_old;
+        Voh_KI_out = ki_accumulator_charge;
         
         // 적분 출력 제한 (Anti-windup)
-        if      (ki_accumulator > upper_limit) ki_accumulator = upper_limit;
-        else if (ki_accumulator < lower_limit) ki_accumulator = lower_limit;
-        Voh_KI_out = ki_accumulator;
+        if      (ki_accumulator_charge > upper_limit) ki_accumulator_charge = upper_limit;
+        else if (ki_accumulator_charge < lower_limit) ki_accumulator_charge = lower_limit;
+        Voh_KI_out = ki_accumulator_charge;
         
         // PI 출력 계산 및 제한
-        Voh_err_PI_out = pi_out = kp_out + ki_accumulator;
+        Voh_err_PI_out = pi_out = kp_out + ki_accumulator_charge;
         if      (pi_out > upper_limit) Voh_err_PI_out = upper_limit;
         else if (pi_out < lower_limit) Voh_err_PI_out = lower_limit;
+        
+        // 방전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
+        ki_accumulator_discharge = Voh_err_PI_out - kp_out;
+        if      (ki_accumulator_discharge > 2)       ki_accumulator_discharge = 2;
+        else if (ki_accumulator_discharge < I_com_1) ki_accumulator_discharge = I_com_1;
         
     } else {
         // =====================================================================
         // 방전 모드 (I_com < 0): 기존 PIControlLow 로직
         // =====================================================================
-        voltage_cmd = Vol_com;      // 저전압 지령  
-        upper_limit = 2;            // 상한: 최대 양의 값
-        lower_limit = I_com_1;      // 하한: 음의 전류 제한
+        voltage_cmd = Vol_com;          // 저전압 지령  
+        upper_limit = 2;                // 상한: 최대 양의 값
+        lower_limit = I_com_1;          // 하한: 음의 전류 제한
         
         // 기존 Vol_ 변수들 업데이트 (호환성 유지)
         Vol_Err = error = voltage_cmd - Vo;
         Vol_KP_out = kp_out = Kp * error;
         
         KI_out_old = Ki * Tsampl * error;
-        Vol_KI_out = ki_accumulator = ki_accumulator + KI_out_old;
+        ki_accumulator_discharge += KI_out_old;
+        Vol_KI_out = ki_accumulator_discharge;
         
         // 적분 출력 제한 (Anti-windup)
-        if      (ki_accumulator > upper_limit) ki_accumulator = upper_limit;
-        else if (ki_accumulator < lower_limit) ki_accumulator = lower_limit;
-        Vol_KI_out = ki_accumulator;
+        if      (ki_accumulator_discharge > upper_limit) ki_accumulator_discharge = upper_limit;
+        else if (ki_accumulator_discharge < lower_limit) ki_accumulator_discharge = lower_limit;
+        Vol_KI_out = ki_accumulator_discharge;
         
         // PI 출력 계산 및 제한
-        Vol_err_PI_out = pi_out = kp_out + ki_accumulator;
+        Vol_err_PI_out = pi_out = kp_out + ki_accumulator_discharge;
         if      (pi_out > upper_limit) Vol_err_PI_out = upper_limit;
         else if (pi_out < lower_limit) Vol_err_PI_out = lower_limit;
+        
+        // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
+        ki_accumulator_charge = Vol_err_PI_out - kp_out;
+        if      (ki_accumulator_charge > I_com_1) ki_accumulator_charge = I_com_1;
+        else if (ki_accumulator_charge < -2)      ki_accumulator_charge = -2;
     }
 }
 
 void ParseModbusData(void) {
+    // C89 변수 선언
+    Uint16 i;
+    
     // 총 출력 전류 계산 (마스터 + 모든 슬레이브)
-    totalCurrentSensor.f = ((currentAvg + currentSense1.f + currentSense2.f + currentSense3.f + currentSense4.f
-                        + currentSense5.f + currentSense6.f + currentSense7.f + currentSense8.f + currentSense9.f));
+    totalCurrentSensor.f = currentAvg;
+    for(i = 1; i <= 9; i++) {
+        totalCurrentSensor.f += currentSense[i].f;
+    }
 
     // Modbus Input Register에 전류값 저장 (32bit float -> 2개 16bit)
     usRegInputBuf[4] = (Uint16) (totalCurrentSensor.u);
@@ -889,7 +878,7 @@ void ParseModbusData(void) {
         case ElectronicLoad_CR_Mode:        // 전자부하 CR 모드
             Vout_Reference = usRegHoldingBuf[5]; 
             Iout_Reference = ((int16)usRegHoldingBuf[7]);
-            loadResistance.u = ((Uint32)usRegHoldingBuf[9] + ((Uint32)usRegHoldingBuf[10]<<16));
+            loadResistance.u = (((Uint32)usRegHoldingBuf[10]<<16) | (Uint32)usRegHoldingBuf[9]);
             break;
             
         case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드
@@ -903,7 +892,7 @@ void ParseModbusData(void) {
     }
 
     // UI 전류 지령값 추출 (32bit float)
-    uiCurrentCommand.u = ((Uint32)usRegHoldingBuf[7] + ((Uint32)usRegHoldingBuf[8]<<16));
+    uiCurrentCommand.u = (((Uint32)usRegHoldingBuf[8]<<16) | (Uint32)usRegHoldingBuf[7]);
 
     // 모듈 개수로 나눈 전류 지령 계산
     currentCmdTemp = uiCurrentCommand.f / MODULE_NUM;
@@ -964,22 +953,6 @@ void ControlFanPwm(void) {
     EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k;
 }
 
-void SystemErrorHandler(void) {
-   __asm("     ESTOP0"); // Test failed!! Stop!
-    for (;;);
-}
-
-//###########################################################################
-// CLA ISRs
-//###########################################################################
-__interrupt void cla1_task1_isr(void) {
-    PieCtrlRegs.PIEACK.bit.ACK11 = 1;
-}
-
-//===========================================================================
-// No more.
-//===========================================================================
-
 __interrupt void ecan0_isr(void) {      
     if (ECanaRegs.CANRMP.bit.RMP30 != 0) 
     {
@@ -996,5 +969,8 @@ __interrupt void ecan0_isr(void) {
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }
 
+#endif // _MAIN_C_
 
-
+//===========================================================================
+// No more.
+//===========================================================================

@@ -2,18 +2,20 @@
 // CAN 통신을 통한 충/방전 명령 처리 및 상태 보고 기능 제공
 
 #include "protocol.h"
-#include "F2806x_Cla_typedefs.h"
-#include "F2806x_Device.h"
-#include <string.h>
-#include "sicDCDC35kw.h" // UNIONFLOAT 타입 정의를 위해 추가
 
 #define MODULE_CHANNEL 0x01 // 모듈 채널번호
+
+// 외부 모듈 변수 선언 (sicDCDC35kw.h에서 정의됨)
+extern float32 Bat_Mean;
+extern float32 Voh_com;
+extern float32 Vol_com;
+extern float32 I_com;
+extern volatile float32 Vo_ad;
 
 /*----------------------------------------------------------------------
  * 전역 변수 정의
  *----------------------------------------------------------------------*/
 PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
-STATE module_state;           // 모듈 상태 (STATE_IDLE or STATE_RUNNING)
 
 // float32 <-> Uint32 변환용 전역 union 변수들
 FLOAT_CONVERTER_UNION float_converter;
@@ -37,6 +39,7 @@ extern float32 currentAvg;  // 전류 (A)
 // 프로토콜 초기화 함수 - CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
 void InitProtocol(void) {
     // 기본 정보 초기화
+    protocol.state_machine = STATE_IDLE;
     protocol.channel = MODULE_CHANNEL;
     protocol.mode = MODE_IDLE;
     protocol.status = READY;
@@ -199,6 +202,18 @@ void ProcessCANCommand(Uint32 isr_mbox, Uint32 ack_mbox)
 
                 case CMD_STOP:  // 정지 명령
                     TransitionToIdle();
+                    break;
+                
+                case CMD_PWR_START:  // PWR Start 명령 (0x0A)
+                    // 상태 비트 설정
+                    protocol.state_bits.bit.output_relay = 1;
+                    protocol.state_bits.bit.pwr_status = 1;
+                    
+                    // 전압 및 전류 설정
+                    Bat_Mean = Vo_ad;
+                    Voh_com = Bat_Mean;
+                    Vol_com = 0;
+                    I_com = 2;
                     break;
                 
                 default:        // 알 수 없는 명령
@@ -563,7 +578,7 @@ void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
 void TransitionToRunning(void) {
     extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
     extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
-    extern float32 V_com; // 전압 지령 값 (V 단위)
+    extern float32 I_com; // 전류 지령 값 (최종)
     extern float32 Power; // 파워 지령 값 (W 단위)
     extern float32 Voh_com, Vol_com; // 배터리 모드 전압 제한값
     extern Uint16 can_report_interval; // CAN 보고 간격
@@ -572,7 +587,7 @@ void TransitionToRunning(void) {
     Run = 1;
     
     // 상태 변경
-    module_state = STATE_RUNNING;
+    protocol.state_machine = STATE_RUNNING;
     protocol.status = OPERATING;
     
     // 운전 시간 초기화 (필요한 경우)
@@ -592,21 +607,30 @@ void TransitionToRunning(void) {
     // CAN 보고 메시지 ID를 운전 모드로 변경 (MBOX23=0x100, MBOX22=0x101, ..., MBOX16=0x107)
     ChangeMBOXIDs(0x100, 16, 8);
     
-    // 단위 변환: mV -> V, mA -> A, mW -> W (곱셈 최적화)
-    // 전류 지령 설정 (외부 변수에 저장)
+    // 단위 변환: mA -> A
     currentCmdTemp = protocol.cmd_current * 0.001f; // mA -> A 변환
+
+    // 🔒 안전 제한 추가 (CAN 경로용)
+    if     (currentCmdTemp >  I_MAX) currentCmdTemp =  I_MAX;   // +80A 제한
+    else if(currentCmdTemp < -I_MAX) currentCmdTemp = -I_MAX;   // -80A 제한
+
+    // I_com에 직접 반영 (CAN 경로 완성)
+    I_com = currentCmdTemp;
     
-    // 전압 지령 설정 (필요한 경우)
-    V_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
+    // 🔧 CAN 전압 지령을 전압 제한값으로 설정 (배터리 보호용)
+    // V_com은 실제 제어에 사용되지 않으므로 제거
+    if (protocol.cmd_voltage > 0) {
+        // 양의 전압 지령: 충전 시 상한 전압으로 사용
+        Voh_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
+        Vol_com = 0.0f; // 방전 하한은 0V로 설정
+    } else {
+        // 음의 전압 지령: 방전 시 하한 전압으로 사용  
+        Vol_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환 (음수)
+        Voh_com = 1000.0f; // 충전 상한은 높은 값으로 설정
+    }
     
     // 파워 지령 설정 (필요한 경우)
     Power = protocol.cmd_power * 0.001f; // mW -> W 변환
-    
-    // 배터리 모드 전압 목표값 설정 (부호 반전 방식)
-    if (protocol.cmd_mode == MODE_CC_CV || protocol.cmd_mode == MODE_CP_CV) {
-        Voh_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
-        Vol_com = -protocol.cmd_voltage * 0.001f; // mV -> V 변환
-    }
     
     // CAN 보고 간격 설정 (운전 상태: 10ms 간격 = 200 * 0.05ms, 20kHz 주기)
     can_report_interval = 200;
@@ -624,7 +648,7 @@ void TransitionToIdle(void) {
     uiCurrentCommand.f = 0.0f;
     
     // 상태 변경
-    module_state = STATE_IDLE;
+    protocol.state_machine = STATE_IDLE;
     protocol.status = READY;
     
     // 종료 보고용 메일박스 활성화 (MBOX18~23, 6개)
@@ -655,7 +679,7 @@ void CheckCANHeartBitTimeout(void) {
         
         // 타임아웃 발생 시 필요한 처리 추가
         // 예: 오류 상태로 전환, 알람 발생 등
-        if(module_state == STATE_RUNNING)
+        if(protocol.state_machine == STATE_RUNNING)
         {
             // 실행 중인 경우 안전을 위해 IDLE 상태로 전환
             TransitionToIdle();

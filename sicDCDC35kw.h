@@ -17,37 +17,52 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 
 #include "sicDCDC35kw_setting.h" //for enum def
 
+//*****************************************************************************
+// System Constants and Configuration
+//*****************************************************************************
+#define I_MAX (80)                    // 최대 전류 제한값 (A)
+#define MODULE_NUM (1)                // 모듈 개수
+#define OVER_VOLTAGE (1100)           // 과전압 보호 임계값 (V)
+
+#define MON_MAXCNT        (10000.)    // 모니터링 카운트 (평균 계산용)
+#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  // 평균 계산 최적화용
+
+//*****************************************************************************
+// GPIO Macros and Hardware Control
+//*****************************************************************************
+
 //for DAC
-#define DAC1_DS()          ( GpioDataRegs.GPBSET.bit.GPIO44 = 1)
-#define DAC1_CS()          ( GpioDataRegs.GPBCLEAR.bit.GPIO44 = 1)
+#define DAC1_DS()          (GpioDataRegs.GPBSET.bit.GPIO44 = 1)
+#define DAC1_CS()          (GpioDataRegs.GPBCLEAR.bit.GPIO44 = 1)
 
-#define ADC1_DS()          ( GpioDataRegs.GPASET.bit.GPIO7 = 1)
-#define ADC1_CS()          ( GpioDataRegs.GPACLEAR.bit.GPIO7 = 1)
+#define ADC1_DS()          (GpioDataRegs.GPASET.bit.GPIO7 = 1)
+#define ADC1_CS()          (GpioDataRegs.GPACLEAR.bit.GPIO7 = 1)
 
-#define EEPROM_WP_EN()     ( GpioDataRegs.GPASET.bit.GPIO14 = 1)
-#define EEPROM_WP_DIS()    ( GpioDataRegs.GPACLEAR.bit.GPIO14 = 1)
+#define EEPROM_WP_EN()     (GpioDataRegs.GPASET.bit.GPIO14 = 1)
+#define EEPROM_WP_DIS()    (GpioDataRegs.GPACLEAR.bit.GPIO14 = 1)
 
 #define BUCK_EN            (GpioDataRegs.GPADAT.bit.GPIO17)
 
-#define LED2_ON()          (GpioDataRegs.GPBSET.bit.GPIO57  = 1)
-#define LED2_OFF()         (GpioDataRegs.GPBCLEAR.bit.GPIO57  = 1)
-#define LED2_TOGGLE()      (GpioDataRegs.GPBTOGGLE.bit.GPIO57  = 1)
+#define LED2_ON()          (GpioDataRegs.GPBSET.bit.GPIO57 = 1)
+#define LED2_OFF()         (GpioDataRegs.GPBCLEAR.bit.GPIO57 = 1)
+#define LED2_TOGGLE()      (GpioDataRegs.GPBTOGGLE.bit.GPIO57 = 1)
 
-#define LED3_ON()          (GpioDataRegs.GPASET.bit.GPIO27  = 1)
-#define LED3_OFF()         (GpioDataRegs.GPACLEAR.bit.GPIO27  = 1)
-#define LED3_TOGGLE()      (GpioDataRegs.GPATOGGLE.bit.GPIO27  = 1)
+#define LED3_ON()          (GpioDataRegs.GPASET.bit.GPIO27 = 1)
+#define LED3_OFF()         (GpioDataRegs.GPACLEAR.bit.GPIO27 = 1)
+#define LED3_TOGGLE()      (GpioDataRegs.GPATOGGLE.bit.GPIO27 = 1)
 
-#define RUN_LED_ON()       (GpioDataRegs.GPASET.bit.GPIO4  = 1)
-#define RUN_LED_OFF()      (GpioDataRegs.GPACLEAR.bit.GPIO4  = 1)
-#define RUN_LED_TOGGLE()   (GpioDataRegs.GPATOGGLE.bit.GPIO4  = 1)
+#define RUN_LED_ON()       (GpioDataRegs.GPASET.bit.GPIO4 = 1)
+#define RUN_LED_OFF()      (GpioDataRegs.GPACLEAR.bit.GPIO4 = 1)
+#define RUN_LED_TOGGLE()   (GpioDataRegs.GPATOGGLE.bit.GPIO4 = 1)
 
-#define FAULT_LED_ON()     (GpioDataRegs.GPASET.bit.GPIO5  = 1)
-#define FAULT_LED_OFF()    (GpioDataRegs.GPACLEAR.bit.GPIO5  = 1)
-#define FAULT_LED_TOGGLE() (GpioDataRegs.GPATOGGLE.bit.GPIO5  = 1)
+#define FAULT_LED_ON()     (GpioDataRegs.GPASET.bit.GPIO5 = 1)
+#define FAULT_LED_OFF()    (GpioDataRegs.GPACLEAR.bit.GPIO5 = 1)
+#define FAULT_LED_TOGGLE() (GpioDataRegs.GPATOGGLE.bit.GPIO5 = 1)
 
+// float32 <-> Uint32 변환용 union 타입 정의
 typedef union {
-    float f;
-    unsigned long u;
+    float32 f;
+    Uint32 u;
 } UNIONFLOAT;
 
 // CAN 쉐도우 레지스터 정의
@@ -122,6 +137,7 @@ float I_com_1;                   // Current command intermediate value (PI 제�
 float32 V_com = 0;               // Voltage command
 float32 Voh_com = 0;             // High voltage command
 float32 Vol_com = 0;             // Low voltage command
+float32 Bat_Mean = 0;            // Battery Mean voltage
 
 // Voltage Sensing and Feedback
 float32 Vo = 0;                  // Output voltage
@@ -215,8 +231,7 @@ Uint16 over_voltage_flag = 0;    // Over voltage flag
 //=============================================================================
 // Modbus and Communication
 UNIONFLOAT loadResistance, uiCurrentCommand;
-UNIONFLOAT currentSense1, currentSense2, currentSense3, currentSense4, currentSense5;
-UNIONFLOAT currentSense6, currentSense7, currentSense8, currentSense9;
+UNIONFLOAT currentSense[10];        // 전류 센서 배열 (인덱스 0은 사용 안함, 1~9 사용)
 UNIONFLOAT currentSensor, totalCurrentSensor, voltageSensorAvg;
 
 // Serial Communication
@@ -251,7 +266,7 @@ __interrupt void epwm3_isr(void);                     // ePWM3 인터럽트 (100
 __interrupt void spi_isr(void);                       // SPI 인터럽트
 __interrupt void scia_txFifo_isr(void);               // SCI-A 송신 FIFO 인터럽트
 __interrupt void ecan0_isr(void);                     // CAN 인터럽트
-__interrupt void cla1_task1_isr(void);                // CLA Task1 인터럽트
+
 __interrupt void scibRxReadyISR(void);                // SCI-B 수신 인터럽트
 __interrupt void scibTxEmptyISR(void);                // SCI-B 송신 인터럽트
 __interrupt void cpuTimer1ExpiredISR(void);           // CPU Timer 1 만료 인터럽트
@@ -297,11 +312,6 @@ void ProcessCANCommand(Uint32 rxMbox, Uint32 txMbox);  // CAN 명령 처리
 void UpdateCANFeedbackValues(void);                // CAN 피드백 값 업데이트
 void TransitionToRunning(void);                    // 운전 상태로 전환
 void TransitionToIdle(void);                       // 대기 상태로 전환
-
-//-----------------------------------------------------------------------------
-// H. Utility Functions (유틸리티 함수)
-//-----------------------------------------------------------------------------
-void SystemErrorHandler(void);                     // 에러 처리
 
 #else
 

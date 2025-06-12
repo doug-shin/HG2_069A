@@ -1,7 +1,8 @@
 #ifndef PROTOCOL_H_
 #define PROTOCOL_H_
 
-#include "F2806x_Cla_typedefs.h"
+#include <string.h>
+#include "sicDCDC35kw.h"
 
 // Endian 변환 매크로
 #define SWAP16(data, offset) ((((Uint16)(data)[(offset) + 1]) << 8) | \
@@ -131,6 +132,7 @@ typedef enum {
 // 통합 프로토콜 구조체 (protocol.md 순서 반영)
 typedef struct {
     // 1. 기본 정보
+    STATE state_machine;      // 모듈 상태 머신 (STATE_IDLE or STATE_RUNNING)
     Uint8 channel;            // 채널 번호
     MODE mode;                // 운전 모드
     STATUS status;            // 상태
@@ -247,7 +249,6 @@ extern Uint16 over_voltage_flag;
 
 // 전역 변수 선언
 extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
-extern STATE module_state;           // 모듈 상태
 
 // CAN 보고 관련 변수 (protocol.c에서 정의됨)
 extern Uint16 can_report_flag;           // CAN 보고 플래그
@@ -263,8 +264,5 @@ typedef union {
 // float32 <-> Uint32 변환용 전역 union 변수들
 extern FLOAT_CONVERTER_UNION float_converter;
 
-// Heart Bit 타임아웃 관련 변수
-extern Uint16 can_360_timeout_counter;  // Heart Bit 타임아웃 카운터
-extern Uint16 can_360_timeout_flag;     // Heart Bit 타임아웃 플래그
 
 #endif /* PROTOCOL_H_ */

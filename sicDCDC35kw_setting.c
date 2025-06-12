@@ -410,46 +410,40 @@ void eCana_config (void) {
     ECanaShadow.CANMD.bit.MD31 = 1;  // MBOX31 RX
     
     // ME (Mailbox Enable) 설정
-    ECanaShadow.CANME.bit.ME16 = 1;  // MBOX16
-    ECanaShadow.CANME.bit.ME17 = 1;  // MBOX17
-    ECanaShadow.CANME.bit.ME18 = 1;  // MBOX18
-    ECanaShadow.CANME.bit.ME19 = 1;  // MBOX19
-    ECanaShadow.CANME.bit.ME20 = 1;  // MBOX20
-    ECanaShadow.CANME.bit.ME21 = 1;  // MBOX21
-    ECanaShadow.CANME.bit.ME22 = 1;  // MBOX22
-    ECanaShadow.CANME.bit.ME23 = 1;  // MBOX23
-    ECanaShadow.CANME.bit.ME24 = 1;  // MBOX24
-    ECanaShadow.CANME.bit.ME25 = 1;  // MBOX25
-    ECanaShadow.CANME.bit.ME29 = 1;  // MBOX29
-    ECanaShadow.CANME.bit.ME30 = 1;  // MBOX30
-    ECanaShadow.CANME.bit.ME31 = 1;  // MBOX31
+    ECanaShadow.CANME.bit.ME16 = 1;          ECanaShadow.CANME.bit.ME17 = 1;
+    ECanaShadow.CANME.bit.ME18 = 1;          ECanaShadow.CANME.bit.ME19 = 1;
+    ECanaShadow.CANME.bit.ME20 = 1;          ECanaShadow.CANME.bit.ME21 = 1;
+    ECanaShadow.CANME.bit.ME22 = 1;          ECanaShadow.CANME.bit.ME23 = 1;
+    ECanaShadow.CANME.bit.ME24 = 1;          ECanaShadow.CANME.bit.ME25 = 1;
+    ECanaShadow.CANME.bit.ME29 = 1;          ECanaShadow.CANME.bit.ME30 = 1;
+    ECanaShadow.CANME.bit.ME31 = 1;
     
     // MSGID 설정 - 11bit ID (MBOX 0~9)
-    ECanaMboxes.MBOX0.MSGID.bit.IDE = 0; ECanaMboxes.MBOX0.MSGID.bit.STDMSGID = 0xF0;
-    ECanaMboxes.MBOX1.MSGID.bit.IDE = 0; ECanaMboxes.MBOX1.MSGID.bit.STDMSGID = 0xF1;
-    ECanaMboxes.MBOX2.MSGID.bit.IDE = 0; ECanaMboxes.MBOX2.MSGID.bit.STDMSGID = 0xF2;
-    ECanaMboxes.MBOX3.MSGID.bit.IDE = 0; ECanaMboxes.MBOX3.MSGID.bit.STDMSGID = 0xF3;
-    ECanaMboxes.MBOX4.MSGID.bit.IDE = 0; ECanaMboxes.MBOX4.MSGID.bit.STDMSGID = 0xF4;
-    ECanaMboxes.MBOX5.MSGID.bit.IDE = 0; ECanaMboxes.MBOX5.MSGID.bit.STDMSGID = 0xF5;
-    ECanaMboxes.MBOX6.MSGID.bit.IDE = 0; ECanaMboxes.MBOX6.MSGID.bit.STDMSGID = 0xF6;
-    ECanaMboxes.MBOX7.MSGID.bit.IDE = 0; ECanaMboxes.MBOX7.MSGID.bit.STDMSGID = 0xF7;
-    ECanaMboxes.MBOX8.MSGID.bit.IDE = 0; ECanaMboxes.MBOX8.MSGID.bit.STDMSGID = 0xF8;
-    ECanaMboxes.MBOX9.MSGID.bit.IDE = 0; ECanaMboxes.MBOX9.MSGID.bit.STDMSGID = 0xF9;
+    ECanaMboxes.MBOX0.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX0.MSGID.bit.STDMSGID = 0xF0;
+    ECanaMboxes.MBOX1.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX1.MSGID.bit.STDMSGID = 0xF1;
+    ECanaMboxes.MBOX2.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX2.MSGID.bit.STDMSGID = 0xF2;
+    ECanaMboxes.MBOX3.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX3.MSGID.bit.STDMSGID = 0xF3;
+    ECanaMboxes.MBOX4.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX4.MSGID.bit.STDMSGID = 0xF4;
+    ECanaMboxes.MBOX5.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX5.MSGID.bit.STDMSGID = 0xF5;
+    ECanaMboxes.MBOX6.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX6.MSGID.bit.STDMSGID = 0xF6;
+    ECanaMboxes.MBOX7.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX7.MSGID.bit.STDMSGID = 0xF7;
+    ECanaMboxes.MBOX8.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX8.MSGID.bit.STDMSGID = 0xF8;
+    ECanaMboxes.MBOX9.MSGID.bit.IDE = 0;     ECanaMboxes.MBOX9.MSGID.bit.STDMSGID = 0xF9;
     
     // MSGID 설정 - 29bit ID (MBOX 16~31)
-    ECanaMboxes.MBOX16.MSGID.bit.IDE = 1; ECanaMboxes.MBOX16.MSGID.bit.EXTMSGID_L = 0x117;
-    ECanaMboxes.MBOX17.MSGID.bit.IDE = 1; ECanaMboxes.MBOX17.MSGID.bit.EXTMSGID_L = 0x116;
-    ECanaMboxes.MBOX18.MSGID.bit.IDE = 1; ECanaMboxes.MBOX18.MSGID.bit.EXTMSGID_L = 0x115;
-    ECanaMboxes.MBOX19.MSGID.bit.IDE = 1; ECanaMboxes.MBOX19.MSGID.bit.EXTMSGID_L = 0x114;
-    ECanaMboxes.MBOX20.MSGID.bit.IDE = 1; ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x113;
-    ECanaMboxes.MBOX21.MSGID.bit.IDE = 1; ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x112;
-    ECanaMboxes.MBOX22.MSGID.bit.IDE = 1; ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x111;
-    ECanaMboxes.MBOX23.MSGID.bit.IDE = 1; ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x110;
-    ECanaMboxes.MBOX24.MSGID.bit.IDE = 1; ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x2200;
-    ECanaMboxes.MBOX25.MSGID.bit.IDE = 1; ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x2201;
-    ECanaMboxes.MBOX29.MSGID.bit.IDE = 1; ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x360;
-    ECanaMboxes.MBOX30.MSGID.bit.IDE = 1; ECanaMboxes.MBOX30.MSGID.bit.EXTMSGID_L = 0x200;
-    ECanaMboxes.MBOX31.MSGID.bit.IDE = 1; ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x201;
+    ECanaMboxes.MBOX16.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX16.MSGID.bit.EXTMSGID_L = 0x117;
+    ECanaMboxes.MBOX17.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX17.MSGID.bit.EXTMSGID_L = 0x116;
+    ECanaMboxes.MBOX18.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX18.MSGID.bit.EXTMSGID_L = 0x115;
+    ECanaMboxes.MBOX19.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX19.MSGID.bit.EXTMSGID_L = 0x114;
+    ECanaMboxes.MBOX20.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX20.MSGID.bit.EXTMSGID_L = 0x113;
+    ECanaMboxes.MBOX21.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX21.MSGID.bit.EXTMSGID_L = 0x112;
+    ECanaMboxes.MBOX22.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX22.MSGID.bit.EXTMSGID_L = 0x111;
+    ECanaMboxes.MBOX23.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX23.MSGID.bit.EXTMSGID_L = 0x110;
+    ECanaMboxes.MBOX24.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX24.MSGID.bit.EXTMSGID_L = 0x2200;
+    ECanaMboxes.MBOX25.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX25.MSGID.bit.EXTMSGID_L = 0x2201;
+    ECanaMboxes.MBOX29.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX29.MSGID.bit.EXTMSGID_L = 0x360;
+    ECanaMboxes.MBOX30.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX30.MSGID.bit.EXTMSGID_L = 0x200;
+    ECanaMboxes.MBOX31.MSGID.bit.IDE = 1;    ECanaMboxes.MBOX31.MSGID.bit.EXTMSGID_L = 0x201;
     
     // DLC 설정 - MBOX 0~15: DLC=4
     ECanaMboxes.MBOX0.MSGCTRL.bit.DLC = 4;   ECanaMboxes.MBOX1.MSGCTRL.bit.DLC = 4;
@@ -464,12 +458,11 @@ void eCana_config (void) {
     ECanaMboxes.MBOX20.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX21.MSGCTRL.bit.DLC = 8;
     ECanaMboxes.MBOX22.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX23.MSGCTRL.bit.DLC = 8;
     ECanaMboxes.MBOX24.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX25.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX29.MSGCTRL.bit.DLC = 8;
-    ECanaMboxes.MBOX30.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX31.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX29.MSGCTRL.bit.DLC = 8;  ECanaMboxes.MBOX30.MSGCTRL.bit.DLC = 8;
+    ECanaMboxes.MBOX31.MSGCTRL.bit.DLC = 8;
 
     // AME (Acceptance Mask Enable) 설정
-    ECanaMboxes.MBOX30.MSGID.bit.AME = 1;
-    ECanaMboxes.MBOX31.MSGID.bit.AME = 1;
+    ECanaMboxes.MBOX30.MSGID.bit.AME = 1;    ECanaMboxes.MBOX31.MSGID.bit.AME = 1;
     
     // LAM(Local Acceptance Mask) 설정 (MBOX30, MBOX31)
     ECanaLAMRegs.LAM30.all = 0;    ECanaLAMRegs.LAM30.bit.LAMI = 1;    ECanaLAMRegs.LAM30.bit.LAM_L = 0xFE;
