@@ -3,6 +3,8 @@
 # Build artifacts
 Debug/
 Release/
+FLASH/
+RAM/
 *.out
 *.obj
 *.o
@@ -68,3 +70,4 @@ Thumbs.db
 # Other files
 .vscode/
 *.log 
+.theia/
