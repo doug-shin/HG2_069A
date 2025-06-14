@@ -210,31 +210,75 @@ typedef struct {
     Uint16 global_current_change_time;  // 전류 변화량 시간 (ms)
 } PROTOCOL_INTEGRATED;
 
-// 초기화 및 처리 함수
+/**
+ * @brief 프로토콜 초기화 함수
+ * @details CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
+ */
 void InitProtocol(void);
 
-// 메시지 전송 함수
-Uint16 SendAck(Uint16 command_id);
-Uint16 SendCommandAck(Uint8* data);
+/**
+ * @brief 종료 보고 전송 함수 (순차 전송 버전)
+ * @details 모듈 종료 시 종합적인 상태 정보를 130번대 메시지로 전송
+ * @param mbox_num 시작 메일박스 번호 (18~23 사용)
+ */
 void SendCANEndReport(Uint32 mbox_num);
+
+/**
+ * @brief 통합 CAN 보고 함수 (일괄 전송 버전)
+ * @details 모든 메시지 데이터를 먼저 준비한 후 한꺼번에 송신 요청
+ * @param mbox_num 시작 메일박스 번호 (MBOX16~23 사용)
+ */
 void SendCANReport(Uint32 mbox_num);
 
-// 메일박스 기반 함수 선언 추가
-void ProcessCANCommand(Uint32 rx_mbox, Uint32 tx_mbox);  // 메일박스 명령 처리 함수 (수신/송신 분리)
+/**
+ * @brief CAN 명령 처리 함수
+ * @details 메일박스의 데이터를 프로토콜 구조체에 저장하고 ACK 응답
+ * @param rx_mbox 수신 메일박스 번호
+ * @param tx_mbox 송신 메일박스 번호 (ACK 전송용)
+ */
+void ProcessCANCommand(Uint32 rx_mbox, Uint32 tx_mbox);
 
-// 상태 전환 함수
+/**
+ * @brief 운전 상태로 전환 함수
+ * @details 시작 명령 수신 시 운전 상태로 전환하고 관련 설정 적용
+ */
 void TransitionToRunning(void);
+
+/**
+ * @brief 대기 상태로 전환 함수  
+ * @details 정지 명령 수신 시 대기 상태로 전환하고 종료 보고 전송
+ */
 void TransitionToIdle(void);
 
-// 타이머 및 업데이트 함수
-void UpdateCANFeedbackValues(void);           // 모든 피드백 값 통합 업데이트
+/**
+ * @brief 모든 피드백 값을 한 번에 업데이트하는 통합 함수
+ * @details 데이터 일관성을 위해 원자적으로 처리
+ */
+void UpdateCANFeedbackValues(void);
 
-// 메일박스 관리 함수
+/**
+ * @brief 메일박스 채널 정보 설정 함수
+ * @details MODULE_CHANNEL을 MSGID의 비트 16~23에 설정
+ * @param start_mbox 시작 메일박스 번호
+ * @param count 설정할 메일박스 개수
+ */
 void SetMBOXChannels(Uint16 start_mbox, Uint16 count);
+
+/**
+ * @brief 메일박스 ID 변경 함수
+ * @details EXTMSGID_L(16비트)만 변경하여 메시지 ID 설정
+ * @param base_id 시작 ID (예: 0x100, 0x110, 0x130)
+ * @param start_mbox 시작 메일박스 번호 (예: 16, 18)
+ * @param count 변경할 메일박스 개수 (예: 6, 8)
+ * @note EXTMSGID_H와 STDMSGID는 변경하지 않음 (채널 정보 유지)
+ */
 void ChangeMBOXIDs(Uint16 base_id, Uint16 start_mbox, Uint16 count);
 
-// CAN 인터럽트 관련 함수
-void CheckCANHeartBitTimeout(void);                // Heart Bit 타임아웃 체크 함수
+/**
+ * @brief Heart Bit 타임아웃 체크 함수
+ * @details 1초 이상 Heart Bit 메시지 미수신 시 안전 모드로 전환
+ */
+void CheckCANHeartBitTimeout(void);
 
 // Heart Bit 관련 전역 변수 선언
 extern Uint16 can_360_msg_count;       // Heart Bit 메시지 수신 횟수

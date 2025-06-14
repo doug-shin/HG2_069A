@@ -36,85 +36,18 @@ extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
 extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
 extern float32 currentAvg;  // 전류 (A)
 
-// 프로토콜 초기화 함수 - CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
+/**
+ * @brief 프로토콜 초기화 함수
+ * @details CAN ID 및 채널 설정 때문에 CAN 초기화 이후에 호출해야 함
+ */
 void InitProtocol(void) {
-    // 기본 정보 초기화
-    protocol.state_machine = STATE_IDLE;
+    // 구조체 전체를 0으로 초기화 (memset 사용)
+    memset(&protocol, 0, sizeof(protocol));
+    
+    // 0이 아닌 값들만 개별 설정
     protocol.channel = MODULE_CHANNEL;
-    protocol.mode = MODE_IDLE;
-    protocol.status = READY;
-    protocol.state_bits.all = 0;
-    protocol.event_code = 0;
-    
-    // 설정값 초기화
-    protocol.cmd_mode = MODE_IDLE;
-    protocol.cmd_step = 0;
-    protocol.cmd_voltage = 0.0f;
-    protocol.cmd_current = 0.0f;
-    protocol.cmd_power = 0.0f;
-    
-    // 모니터링값 초기화
-    protocol.fb_voltage = 0.0f;
-    protocol.fb_current = 0.0f;
-    protocol.fb_t1_temp = 0.0f;
-    protocol.fb_t2_temp = 0.0f;
-    protocol.fb_charge_ah = 0.0f;
-    protocol.fb_discharge_ah = 0.0f;
-    protocol.fb_charge_wh = 0.0f;
-    protocol.fb_discharge_wh = 0.0f;
-    protocol.fb_operation_time = 0;
-    protocol.fb_cv_time = 0;
-    
-    // 에러 상태 초기화
-    protocol.pwm_hw_error = 0;
-    protocol.pwm_sw_error1 = 0;
-    protocol.pwm_sw_error2 = 0;
-    protocol.pwm_sw_warning = 0;
-    protocol.dcdc_hw_error = 0;
-    protocol.dcdc_sw_error1 = 0;
-    protocol.dcdc_sw_error2 = 0;
-    protocol.dcdc_sw_warning = 0;
-    
-    // 종료 조건 초기화
-    protocol.end_condition_voltage = 0.0f;
-    protocol.end_condition_current = 0.0f;
-    protocol.end_condition_capacity_ah = 0.0f;
-    protocol.end_condition_capacity_wh = 0.0f;
-    protocol.end_condition_cv_time = 0;
-    
-    // 안전 제한 초기화
-    protocol.limit_voltage_min = 0.0f;
-    protocol.limit_voltage_max = 0.0f;
-    protocol.limit_current_charge = 0.0f;
-    protocol.limit_current_discharge = 0.0f;
-    protocol.limit_capacity_charge = 0.0f;
-    protocol.limit_capacity_discharge = 0.0f;
-    
-    // 시간 설정 초기화
-    protocol.time_start = 0;
-    protocol.time_operation = 0;
-    
-    // 패턴 데이터 초기화
-    protocol.pattern_index = 0;
     protocol.pattern_data_type = PATTERN_DATA_STORE;
     protocol.pattern_control_type = PATTERN_CONTROL_CURRENT;
-    protocol.pattern_time_unit = 0;
-    protocol.pattern_index_value = 0;
-    protocol.pattern_current_or_power = 0.0f;
-    
-    // 전역 안전 조건 초기화
-    protocol.global_voltage_min = 0.0f;
-    protocol.global_voltage_max = 0.0f;
-    protocol.global_current_charge = 0.0f;
-    protocol.global_current_discharge = 0.0f;
-    protocol.global_capacity_charge = 0.0f;
-    protocol.global_capacity_discharge = 0.0f;
-    protocol.global_temp_max = 0.0f;
-    protocol.global_temp_min = 0.0f;
-    protocol.global_voltage_change = 0;
-    protocol.global_voltage_change_time = 0;
-    protocol.global_current_change = 0;
-    protocol.global_current_change_time = 0;
     
     // 모든 메일박스 채널 정보 설정 (MBOX16~31, 16개)
     SetMBOXChannels(16, 16);
@@ -124,7 +57,8 @@ void InitProtocol(void) {
 }
 
 /**
- * 메일박스의 데이터를 프로토콜 구조체에 저장하는 함수
+ * @brief CAN 명령 처리 함수
+ * @details 메일박스의 데이터를 프로토콜 구조체에 저장하고 ACK 응답
  * @param isr_mbox 수신 메일박스 번호
  * @param ack_mbox 송신 메일박스 번호 (ACK 전송용)
  */
@@ -508,8 +442,8 @@ void UpdateCANFeedbackValues(void) {
 }
 
 /**
- * 메일박스 채널 정보 설정 함수
- * MODULE_CHANNEL을 MSGID의 비트 16~23에 설정
+ * @brief 메일박스 채널 정보 설정 함수
+ * @details MODULE_CHANNEL을 MSGID의 비트 16~23에 설정
  * @param start_mbox 시작 메일박스 번호
  * @param count 설정할 메일박스 개수
  */
@@ -541,13 +475,12 @@ void SetMBOXChannels(Uint16 start_mbox, Uint16 count) {
 }
 
 /**
- * 메일박스 ID 변경 함수
+ * @brief 메일박스 ID 변경 함수
+ * @details EXTMSGID_L(16비트)만 변경하여 메시지 ID 설정
  * @param base_id 시작 ID (예: 0x100, 0x110, 0x130)
  * @param start_mbox 시작 메일박스 번호 (예: 16, 18)
  * @param count 변경할 메일박스 개수 (예: 6, 8)
- * 
- * 주의: EXTMSGID_H와 STDMSGID는 변경하지 않음 (채널 정보 유지)
- *       EXTMSGID_L(16비트)만 변경하여 메시지 ID 설정
+ * @note EXTMSGID_H와 STDMSGID는 변경하지 않음 (채널 정보 유지)
  */
 void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
     Uint32 i;
@@ -574,7 +507,10 @@ void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
     EDIS;
 }
 
-// 운전 상태로 전환 함수
+/**
+ * @brief 운전 상태로 전환 함수
+ * @details 시작 명령 수신 시 운전 상태로 전환하고 관련 설정 적용
+ */
 void TransitionToRunning(void) {
     extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
     extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
@@ -636,7 +572,10 @@ void TransitionToRunning(void) {
     can_report_interval = 200;
 }
 
-// 대기 상태로 전환 함수
+/**
+ * @brief 대기 상태로 전환 함수
+ * @details 정지 명령 수신 시 대기 상태로 전환하고 종료 보고 전송
+ */
 void TransitionToIdle(void) {
     extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값
     extern Uint16 can_report_interval; // CAN 보고 간격
@@ -667,7 +606,10 @@ void TransitionToIdle(void) {
     can_report_interval = 2000;
 }
 
-// Heart Bit 타임아웃 체크 함수
+/**
+ * @brief Heart Bit 타임아웃 체크 함수
+ * @details 1초 이상 Heart Bit 메시지 미수신 시 안전 모드로 전환
+ */
 void CheckCANHeartBitTimeout(void) {
     // 1ms마다 호출된다고 가정
     can_360_timeout_counter++;

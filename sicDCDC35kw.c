@@ -76,13 +76,13 @@ void stra_xmit(Uint8 *buff, Uint16 Length);
 #pragma CODE_SECTION(cpuTimer1ExpiredISR, "ramfuncs");
 #pragma CODE_SECTION(scibRxReadyISR, "ramfuncs");
 #pragma CODE_SECTION(scibTxEmptyISR, "ramfuncs");
-#pragma CODE_SECTION(cpu_timer0_isr, "ramfuncs");   //copy to FLash to ram
-#pragma CODE_SECTION(cpu_timer2_isr, "ramfuncs");   //copy to FLash to ram
+#pragma CODE_SECTION(cpu_timer0_isr, "ramfuncs");
+#pragma CODE_SECTION(cpu_timer2_isr, "ramfuncs");
 #pragma CODE_SECTION(ParseModbusData, "ramfuncs");
 #pragma CODE_SECTION(stra_xmit, "ramfuncs");
 #pragma CODE_SECTION(epwm3_isr, "ramfuncs");
 #pragma CODE_SECTION(ecan0_isr, "ramfuncs");
-#pragma CODE_SECTION(adc_isr, "ramfuncs");   //copy to Flash to Ram
+#pragma CODE_SECTION(adc_isr, "ramfuncs");
 
 __interrupt void cpu_timer0_isr(void);
 __interrupt void cpu_timer2_isr(void);
@@ -464,7 +464,7 @@ __interrupt void cpu_timer0_isr(void) {
 }
 
 /**
- * @brief CPU Timer 2 인터럽트 (1초)
+ * @brief CPU Timer 2 인터럽트 (50us, 20kHz)
  */
 __interrupt void cpu_timer2_isr(void) {
     cpu_timer2_cnt++;

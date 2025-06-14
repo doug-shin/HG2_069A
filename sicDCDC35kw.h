@@ -51,13 +51,13 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 #define LED3_OFF()         (GpioDataRegs.GPACLEAR.bit.GPIO27 = 1)
 #define LED3_TOGGLE()      (GpioDataRegs.GPATOGGLE.bit.GPIO27 = 1)
 
-#define RUN_LED_ON()       (GpioDataRegs.GPASET.bit.GPIO4 = 1)
-#define RUN_LED_OFF()      (GpioDataRegs.GPACLEAR.bit.GPIO4 = 1)
-#define RUN_LED_TOGGLE()   (GpioDataRegs.GPATOGGLE.bit.GPIO4 = 1)
+#define LED_RUN_ON()       (GpioDataRegs.GPASET.bit.GPIO4 = 1)
+#define LED_RUN_OFF()      (GpioDataRegs.GPACLEAR.bit.GPIO4 = 1)
+#define LED_RUN_TOGGLE()   (GpioDataRegs.GPATOGGLE.bit.GPIO4 = 1)
 
-#define FAULT_LED_ON()     (GpioDataRegs.GPASET.bit.GPIO5 = 1)
-#define FAULT_LED_OFF()    (GpioDataRegs.GPACLEAR.bit.GPIO5 = 1)
-#define FAULT_LED_TOGGLE() (GpioDataRegs.GPATOGGLE.bit.GPIO5 = 1)
+#define LED_FAULT_ON()     (GpioDataRegs.GPASET.bit.GPIO5 = 1)
+#define LED_FAULT_OFF()    (GpioDataRegs.GPACLEAR.bit.GPIO5 = 1)
+#define LED_FAULT_TOGGLE() (GpioDataRegs.GPATOGGLE.bit.GPIO5 = 1)
 
 // float32 <-> Uint32 변환용 union 타입 정의
 typedef union {
@@ -101,7 +101,7 @@ void modbus_parse(void);
 // 1. System Control and Status Variables
 //=============================================================================
 eCharge_DisCharge_Mode eChargeMode;
-Uint16 mainLoopCount = 0;
+Uint32 mainLoopCount = 0;
 Uint16 Run = 0;
 Uint16 start_stop = 0;
 eConfig_USART_send_period USART_send_period = e50us;
