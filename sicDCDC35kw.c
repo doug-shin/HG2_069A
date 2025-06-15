@@ -1,36 +1,54 @@
-//###########################################################################
-// 35kW DC-DC Converter Control Software
-// 2025.02.26 final 정상 동작 확인
-
-/*===========================================================================
- * 시스템 사양
- *===========================================================================
- * [통신 사양]
- * - HMI 통신: RS232 Modbus RTU, 38400bps, 8bit/1stop/none, 100ms polling
- * - 485 통신: 5.625Mbps, 0.1ms마다 9byte 전송 (전류지령)
- * - CAN 통신: 1Mbps, 1ms polling, CAN 2.0A 방식
- *   · 마스터: CAN ID 0xF0 (고정)
- *   · 슬레이브: CAN ID 0xF1~0xF9 (DIP 스위치로 설정)
- *   · 버스 로드율: 약 13% (1kHz 전송)
- * - 터미널: SCI-B 230400bps (슬레이브 모니터링용)
+/**
+ * @file sicDCDC35kw.c
+ * @brief 35kW DC-DC 컨버터 제어 시스템 메인 소스 파일
+ * @version 2025.02.26 final 정상 동작 확인
+ * 
+ * @details 시스템 아키텍처 및 통신 구조:
+ * 
+ * ┌─────────────────┐    SCI Modbus RTU     ┌─────────────────┐
+ * │   제어 컴퓨터    │◄──────38400bps──────►│   마스터 모듈    │
+ * │  (Control PC)   │    CAN Protocol      │  (Master F28069) │
+ * └─────────────────┘◄──────500kbps───────►└─────────────────┘
+ *                                                    │
+ *                                          SCI 485  │ 5.625Mbps
+ *                                        (전류지령   │ 브로드캐스팅)
+ *                                         브로드캐스팅)│
+ *                                                    ▼
+ *                    ┌─────────────────┬─────────────────┬─────────────────┐
+ *                    │   슬레이브 1     │   슬레이브 2     │   슬레이브 N     │
+ *                    │ (Slave F28069)  │ (Slave F28069)  │ (Slave F28069)  │
+ *                    └─────────────────┴─────────────────┴─────────────────┘
+ *                            │                 │                 │
+ *                            └─────CAN 500kbps─┴─────────────────┘
+ *                                  (전류 피드백)
+ * 
+ * @section communication_spec 통신 사양
+ * - **제어 컴퓨터 ↔ 마스터**: 
+ *   - SCI Modbus RTU: 38400bps, 8bit/1stop/none, 100ms polling (전류/전압 지령)
+ *   - CAN Protocol: 500kbps, 상태 보고 및 제어 명령
+ * - **마스터 → 슬레이브**: SCI 485, 5.625Mbps, 0.1ms마다 전류지령 브로드캐스팅
+ * - **슬레이브 → 마스터**: CAN 500kbps, 1ms polling, 전류 피드백
+ * - **터미널**: SCI-B 230400bps (슬레이브 모니터링용)
  *
- * [제어 사양]  
- * - PI 제어: 20kHz (50us 주기)
- * - 전류 범위: ±100A (0A=1.5V, +100A=3V, -100A=0V)
- * - DAC 기본값: 2000 (OFF 상태)
- * - 클럭: LSPCLK 90MHz/(7+1) = 11.25MHz
+ * @section control_spec 제어 사양  
+ * - **PI 제어**: 20kHz (50us 주기), DCL 라이브러리 최적화 지원
+ * - **전류 범위**: ±100A (0A=1.5V, +100A=3V, -100A=0V)
+ * - **DAC 출력**: 12bit, 기본값 2000 (OFF 상태)
+ * - **클럭**: LSPCLK 90MHz/(7+1) = 11.25MHz
  *
- * [하드웨어 핀맵]
- * - DIP Switch: GPIO10,11,41,55 (CAN ID 설정)
- * - LED: GPIO4(RUN), GPIO5(FAULT), GPIO27,57(상태)
- * - ADC: CH0(온도), CH1(전류), CH2(전압)
- * - EEPROM: SDA(GPIO32), SCL(GPIO33), WP(GPIO14)
- * - 485 통신: 종단저항 양단 200mV 이상 필요
+ * @section hardware_pinmap 하드웨어 핀맵
+ * - **DIP Switch**: GPIO10,11,41,55 (CAN ID 설정)
+ * - **LED**: GPIO4(RUN), GPIO5(FAULT), GPIO27,57(상태)
+ * - **ADC**: CH0(온도), CH1(전류), CH2(전압)
+ * - **SPI**: ADC/DAC 통신 (11.25MHz)
+ * - **EEPROM**: SDA(GPIO32), SCL(GPIO33), WP(GPIO14)
+ * - **485 통신**: 종단저항 양단 200mV 이상 필요
  *
- * [아키텍처]
- * - 마스터: PI 제어 + 전류지령 생성 → 485로 슬레이브에 전송
- * - 슬레이브: CAN으로 센싱 전류값을 마스터에 피드백
- * - 병렬 운전: 160A = 슬레이브 2개 × 80A (각각 4V/0V 출력)
+ * @section system_architecture 시스템 아키텍처
+ * - **마스터**: PI 제어 + 전류지령 생성 → 485로 슬레이브에 전송
+ * - **슬레이브**: CAN으로 센싱 전류값을 마스터에 피드백
+ * - **병렬 운전**: 160A = 슬레이브 2개 × 80A (각각 4V/0V 출력)
+ * - **Protocol 시스템**: 제어 컴퓨터와의 CAN 통신 (MBOX 16~31 사용)
  */
 
 /*===========================================================================
@@ -147,6 +165,26 @@ Uint16 hw_fault = 0, GPIO_in = 0, GPIO_in_1 = 0;
 
 /**
  * @brief 메인 함수 - 시스템 초기화 및 메인 루프
+ * 
+ * @details 시스템 초기화 순서:
+ * 1. 시스템 제어 초기화 (PLL, 워치독, 주변장치 클럭)
+ * 2. GPIO 초기화 및 하드웨어 설정
+ * 3. 인터럽트 및 PIE 벡터 테이블 초기화
+ * 4. 시리얼 통신 초기화 (RS-232, RS-485)
+ * 5. CAN 통신 및 프로토콜 초기화
+ * 6. ADC 및 SPI 초기화
+ * 7. 타이머 및 PWM 초기화
+ * 8. DCL PI 컨트롤러 초기화
+ * 9. Modbus 프로토콜 스택 초기화
+ * 10. 메인 루프 실행
+ * 
+ * @section main_loop 메인 루프 처리 내용
+ * - SCI FIFO 오버플로우 처리
+ * - Modbus 폴링 (필수 호출)
+ * - CAN 보고 처리 (Protocol 시스템)
+ * - CAN 송수신 처리 (슬레이브 피드백, 1kHz)
+ * - Modbus 데이터 파싱 (20kHz → 100Hz)
+ * - 워치독 서비스
  */
 void main(void) {
     Uint16 i;
@@ -436,9 +474,26 @@ void main(void) {
 //=============================================================================
 
 /**
- * @brief 문자열 전송 함수 (SCI-A)
+ * @brief 문자열 전송 함수 (SCI-A, RS485)
+ * 
  * @param buff 전송할 데이터 버퍼
  * @param Length 전송할 데이터 길이
+ * 
+ * @details RS485를 통한 슬레이브 전류 지령 브로드캐스팅
+ * 
+ * @section rs485_communication RS485 통신 사양
+ * - **속도**: 5.625Mbps
+ * - **주기**: 0.1ms (10kHz)
+ * - **데이터**: 4바이트 (STX, 전류지령 Low, 전류지령 High, ETX)
+ * - **방식**: 브로드캐스팅 (모든 슬레이브가 동일한 지령 수신)
+ * 
+ * @section data_format 데이터 포맷
+ * - **STX (0x02)**: 시작 문자
+ * - **Data Low**: 전류 지령 하위 바이트
+ * - **Data High**: 전류 지령 상위 바이트  
+ * - **ETX (0x03)**: 종료 문자
+ * 
+ * @note 이 함수는 epwm3_isr의 Case 2에서 20kHz로 호출됨
  */
 void stra_xmit(Uint8 *buff, Uint16 Length) {
     Uint16 i;
@@ -491,13 +546,29 @@ Uint16 epwm3_isr_cnt, check_counter;
 /**
  * @brief ePWM3 인터럽트 서비스 루틴 (100kHz 호출)
  * 
- * 주요 기능:
- * - 20kHz PI 제어 알고리즘 실행 (case 0, 1)  
- * - 전류 지령 처리 및 통신 (case 2)
- * - 온도 처리 및 CAN 보고 (case 3)
- * - 전류/전압 평균 계산 및 팬 제어 (case 4)
- * - SPI ADC 데이터 처리
- * - GPIO 하드웨어 폴트 감지
+ * @details 메인 제어 루프 - 시스템의 핵심 제어 알고리즘이 실행되는 인터럽트
+ * 
+ * @section timing_structure 타이밍 구조 (100kHz → 20kHz 분주)
+ * - **Case 0**: 전압 센싱 (20kHz)
+ * - **Case 1**: 통합 PI 제어 (충전/방전 자동 선택) - **DCL 최적화 적용**
+ * - **Case 2**: 전류 지령 처리 및 RS485 통신 (20kHz)
+ * - **Case 3**: 온도 처리 및 CAN 보고 (20kHz)
+ * - **Case 4**: 평균 계산 및 팬 제어 (20kHz)
+ * 
+ * @section communication_handling 통신 처리
+ * - **SPI ADC**: 매 인터럽트마다 전류 ADC 데이터 읽기 (100kHz)
+ * - **RS485**: Case 2에서 전류 지령 브로드캐스팅 (20kHz)
+ * - **CAN 타이밍**: 1kHz 전송 타이밍 관리
+ * - **DAC 출력**: 매 인터럽트마다 전류 지령 DAC 출력 (100kHz)
+ * 
+ * @section safety_features 안전 기능
+ * - 하드웨어 폴트 감지 (GPIO 기반)
+ * - 과전압 보호
+ * - 소프트 스타트 제어
+ * - 방전 FET 제어 (1초 지연)
+ * 
+ * @note 이 인터럽트는 시스템의 실시간 성능을 결정하는 핵심 함수입니다.
+ *       DCL 사용 시 약 65% 성능 향상 (40-50 cycles → 12-15 cycles)
  */
 __interrupt void epwm3_isr(void) { // 100KHz
     // C89 변수 선언
@@ -727,6 +798,21 @@ __interrupt void adc_isr(void) {
     return;
 }
 
+/**
+ * @brief 고전압 PI 컨트롤러 (충전 모드용)
+ * 
+ * @details 충전 모드(I_com >= 0)에서 사용되는 PI 제어기
+ * - 고전압 지령(Voh_com)과 실제 전압(Vo)의 차이를 PI 제어로 보상
+ * - 출력은 양의 전류 지령으로 제한됨 (충전 방향)
+ * 
+ * @section control_algorithm 제어 알고리즘
+ * - **비례항**: Kp × (Voh_com - Vo)
+ * - **적분항**: Ki × Tsampl × ∑(Voh_com - Vo)
+ * - **출력 제한**: -2A ~ I_com_1 (전류 지령 상한)
+ * - **Anti-windup**: 적분항 포화 방지
+ * 
+ * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
+ */
 void PIControlHigh(void) {
     Voh_Err = Voh_com - Vo;                     // 고전압 에러 계산
     Voh_KP_out = Kp * Voh_Err;                  // P term (비례 제어)
@@ -746,6 +832,21 @@ void PIControlHigh(void) {
     else if (Voh_err_PI_out <       -2) Voh_err_PI_out =  -2;
 }
 
+/**
+ * @brief 저전압 PI 컨트롤러 (방전 모드용)
+ * 
+ * @details 방전 모드(I_com < 0)에서 사용되는 PI 제어기
+ * - 저전압 지령(Vol_com)과 실제 전압(Vo)의 차이를 PI 제어로 보상
+ * - 출력은 음의 전류 지령으로 제한됨 (방전 방향)
+ * 
+ * @section control_algorithm 제어 알고리즘
+ * - **비례항**: Kp × (Vol_com - Vo)
+ * - **적분항**: Ki × Tsampl × ∑(Vol_com - Vo)
+ * - **출력 제한**: I_com_1 (전류 지령 하한) ~ 2A
+ * - **Anti-windup**: 적분항 포화 방지
+ * 
+ * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
+ */
 void PIControlLow(void) {
     Vol_Err = Vol_com - Vo;                     // 저전압 에러 계산
     Vol_KP_out = Kp * Vol_Err;                  // P term (비례 제어)
@@ -941,6 +1042,31 @@ void PIControlDCL(void) {
     }
 }
 
+/**
+ * @brief Modbus 데이터 파싱 및 처리
+ * 
+ * @details 제어 컴퓨터로부터 수신한 Modbus RTU 데이터를 파싱하여 시스템 제어 변수에 반영
+ * 
+ * @section data_flow 데이터 흐름
+ * 1. **피드백 데이터 전송**: 전류/전압 센서값을 Input Register에 저장
+ * 2. **명령 수신**: Holding Register에서 제어 명령 추출
+ * 3. **운전 모드 처리**: 모드별 파라미터 설정
+ * 4. **전류 지령 처리**: UI 전류 지령을 모듈 개수로 분배
+ * 
+ * @section modbus_registers Modbus 레지스터 맵
+ * - **Input Register 4-5**: 총 출력 전류 (32bit float)
+ * - **Input Register 10-11**: 평균 전압 (32bit float)
+ * - **Holding Register 0**: 시작/정지 명령 (bit 3: START, bit 4: STOP)
+ * - **Holding Register 2**: 운전 모드 (강제로 64 설정)
+ * - **Holding Register 5**: 전압 기준값
+ * - **Holding Register 7-8**: 전류 지령 (32bit float)
+ * 
+ * @section operating_modes 운전 모드
+ * - **64**: 배터리 충방전 CC 모드 (현재 고정)
+ * - 각 모드별로 다른 파라미터 설정 방식 적용
+ * 
+ * @note 이 함수는 20kHz → 100Hz로 분주되어 호출됨 (10ms 주기)
+ */
 void ParseModbusData(void) {
     // C89 변수 선언
     Uint16 i;
@@ -1008,6 +1134,25 @@ void ParseModbusData(void) {
     I_com = currentCmdTemp;
 }
 
+/**
+ * @brief 전류 평균 계산
+ * 
+ * @details SPI ADC로부터 읽은 전류값의 평균 계산 및 스케일링
+ * 
+ * @section adc_conversion ADC 변환 사양
+ * - **ADC 범위**: 0~4095 (12bit)
+ * - **전압 범위**: 0~3V
+ * - **전류 매핑**: 0A=1.5V(2048), +100A=3V(4095), -100A=0V(0)
+ * - **변환 공식**: (ADC - 2048) × (100/2048) = 실제 전류(A)
+ * 
+ * @section averaging_process 평균 계산 과정
+ * 1. **5회 평균**: SPI에서 읽은 5개 ADC 값의 평균 (100kHz → 20kHz)
+ * 2. **스케일링**: ADC 값을 실제 전류값으로 변환
+ * 3. **10000회 누적**: 모니터링용 장기 평균 계산
+ * 4. **최종 평균**: 10000회 완료 시 currentSensor.f에 저장
+ * 
+ * @note 이 함수는 epwm3_isr의 Case 4에서 20kHz로 호출됨
+ */
 void CalcCurrentAverage(void) {
     // C89 변수 선언을 맨 앞에 위치
     float32 currentAdcAvg;
@@ -1033,6 +1178,22 @@ void CalcCurrentAverage(void) {
     }
 }
 
+/**
+ * @brief 전압 평균 계산
+ * 
+ * @details 전압 센서값의 장기 평균 계산 (모니터링 및 Modbus 전송용)
+ * 
+ * @section voltage_sensing 전압 센싱
+ * - **입력**: Vo_sen (스케일링된 실제 전압값)
+ * - **누적**: 10000회 누적하여 평균 계산
+ * - **주기**: 20kHz로 호출되어 0.5초마다 평균값 갱신
+ * 
+ * @section data_usage 데이터 활용
+ * - **voltageMean**: 내부 모니터링용 평균값
+ * - **voltageSensorAvg.f**: Modbus Input Register 전송용
+ * 
+ * @note 이 함수는 epwm3_isr의 Case 3에서 20kHz로 호출됨
+ */
 void CalcVoltageAverage(void) {
     // 전압 센서값 누적
     voltageSumMonitor += Vo_sen;
@@ -1047,6 +1208,25 @@ void CalcVoltageAverage(void) {
     }
 }
 
+/**
+ * @brief 팬 PWM 제어
+ * 
+ * @details 온도에 따른 팬 PWM 듀티 사이클 제어 (온도 비례 제어)
+ * 
+ * @section temperature_control 온도 제어 알고리즘
+ * - **온도 범위**: 36°C ~ 52.4°C
+ * - **듀티 범위**: 15% ~ 90%
+ * - **제어 공식**: duty = 0.8 × (Temp - 36) / (52.4 - 36) + 0.2
+ * - **최소 듀티**: 15% (항상 최소 회전 보장)
+ * - **최대 듀티**: 90% (과부하 방지)
+ * 
+ * @section pwm_output PWM 출력
+ * - **PWM 주파수**: 10kHz (PWM_PERIOD_10k)
+ * - **출력 핀**: ePWM1A
+ * - **극성**: 반전 (1 - fan_pwm_duty)
+ * 
+ * @note 이 함수는 epwm3_isr의 Case 4에서 20kHz로 호출됨
+ */
 void ControlFanPwm(void) {
     fan_pwm_duty = 0.8 * (In_Temp - 36) / (52.4f - 36) + 0.2;
 
@@ -1056,6 +1236,27 @@ void ControlFanPwm(void) {
     EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k;
 }
 
+/**
+ * @brief CAN 인터럽트 서비스 루틴
+ * 
+ * @details 두 가지 CAN 통신을 처리하는 통합 인터럽트
+ * 
+ * @section can_communication CAN 통신 구조
+ * 1. **슬레이브 피드백** (MBOX 1~9): 슬레이브 → 마스터 전류 피드백
+ * 2. **Protocol 통신** (MBOX 16~31): 제어 컴퓨터 ↔ 마스터 명령/상태
+ * 
+ * @section protocol_mailboxes Protocol 메일박스
+ * - **MBOX 30**: 제어 컴퓨터 → 마스터 명령 수신
+ * - **MBOX 31**: 제어 컴퓨터 → 마스터 명령 수신 (추가)
+ * - **MBOX 24, 25**: 마스터 → 제어 컴퓨터 응답 송신
+ * 
+ * @section interrupt_handling 인터럽트 처리
+ * - RMP30/RMP31 비트 확인하여 Protocol 명령 처리
+ * - 슬레이브 피드백은 메인 루프에서 폴링 방식으로 처리
+ * - 모든 인터럽트 플래그 클리어 후 PIE ACK
+ * 
+ * @note Protocol 시스템은 별도 추가된 기능으로 기존 슬레이브 통신과 독립적
+ */
 __interrupt void ecan0_isr(void) {      
     if (ECanaRegs.CANRMP.bit.RMP30 != 0) 
     {
