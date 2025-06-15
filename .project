@@ -26,6 +26,21 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>DCL_clamp_C1.asm</name>
+			<type>1</type>
+			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/libraries/control/DCL/c28/source/DCL_clamp_C1.asm</locationURI>
+		</link>
+		<link>
+			<name>DCL_futils.asm</name>
+			<type>1</type>
+			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/libraries/control/DCL/c28/source/DCL_futils.asm</locationURI>
+		</link>
+		<link>
+			<name>DCL_PI_C1.asm</name>
+			<type>1</type>
+			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/libraries/control/DCL/c28/source/DCL_PI_C1.asm</locationURI>
+		</link>
+		<link>
 			<name>F2806x_Adc.c</name>
 			<type>1</type>
 			<locationURI>COM_TI_C2000WARE_INSTALL_DIR/device_support/f2806x/common/source/F2806x_Adc.c</locationURI>

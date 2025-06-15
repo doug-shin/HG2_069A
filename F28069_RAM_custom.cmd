@@ -42,6 +42,7 @@ SECTIONS
                       LOAD_END(_RamfuncsLoadEnd),
                       RUN_START(_RamfuncsRunStart),
                       LOAD_SIZE(_RamfuncsLoadSize)
+   dclfuncs         : > RAML0_L4,      PAGE = 0    /* DCL library functions */
    .cinit           : > RAMM0,         PAGE = 0    /* Initialization data */
    .pinit           : > RAMM0,         PAGE = 0    /* Constructor tables */
    .switch          : > RAMM0,         PAGE = 0    /* Switch tables */

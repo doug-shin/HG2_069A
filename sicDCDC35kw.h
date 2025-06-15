@@ -15,7 +15,13 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-#include "sicDCDC35kw_setting.h" //for enum def
+#include <string.h>
+#include <math.h>
+#include "DSP28x_Project.h"
+#include "DCLF32.h"
+#include "sicDCDC35kw_setting.h"
+#include "modbus.h"
+#include "protocol.h"
 
 //*****************************************************************************
 // System Constants and Configuration
@@ -184,6 +190,17 @@ float32 Voh_KI_out = 0;          // High voltage integral output
 float32 Vol_KI_out = 0;          // Low voltage integral output
 
 //=============================================================================
+// 4.1 DCL PI Controller Variables (DCL 라이브러리 기반 PI 제어)
+//=============================================================================
+// DCL PI Controllers
+DCL_PI dcl_pi_charge;            // DCL 충전용 PI 컨트롤러
+DCL_PI dcl_pi_discharge;         // DCL 방전용 PI 컨트롤러
+DCL_CSS dcl_css_common;          // DCL 공통 지원 구조체
+
+// DCL Control Flags
+Uint16 use_dcl_controller = 1;   // DCL 제어기 사용 플래그 (1: DCL 사용, 0: 기존 사용)
+
+//=============================================================================
 // 5. Temperature Sensing and Fan Control
 //=============================================================================
 // Temperature Sensing (온도 센싱)
@@ -278,6 +295,13 @@ void PIControlHigh(void);                             // 고전압 PI 컨트롤�
 void PIControlLow(void);                              // 저전압 PI 컨트롤러
 void PIControlUnified(void);                          // 통합 PI 컨트롤러 (충전/방전 자동 선택)
 
+// DCL PI Controller Functions (DCL 기반 PI 제어 함수)
+void InitDCLControllers(void);                        // DCL PI 컨트롤러 초기화
+void PIControlDCL(void);                              // DCL 기반 PI 제어 함수
+
+// DCL Assembly Function Declaration (DCL 어셈블리 함수 선언)
+extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk);
+
 //-----------------------------------------------------------------------------
 // C. Sensing and Calculation Functions (센싱 및 계산 함수)
 //-----------------------------------------------------------------------------
@@ -338,6 +362,11 @@ extern float I_com_1;                              // Current command intermedia
 extern unsigned int voltageCount;                  // Voltage monitoring counter
 extern float voltageMean;                          // Voltage mean value
 extern Uint16 Run;                                 // System run state
+
+// DCL Controller External Declarations
+extern DCL_PI dcl_pi_charge, dcl_pi_discharge;     // DCL PI 컨트롤러들
+extern DCL_CSS dcl_css_common;                     // DCL 공통 지원 구조체
+extern Uint16 use_dcl_controller;                  // DCL 제어기 사용 플래그
 
 #endif   //_MAIN_C_
 

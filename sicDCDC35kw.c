@@ -52,13 +52,7 @@
 #ifndef _MAIN_C_
 #define _MAIN_C_
 
-#include <string.h>
-#include <math.h>
-#include "DSP28x_Project.h"
 #include "sicDCDC35kw.h"
-#include "sicDCDC35kw_setting.h"
-#include "modbus.h"
-#include "protocol.h"
 
 // CAN Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol;  // 프로토콜 구조체
@@ -330,7 +324,12 @@ void main(void) {
     }
 
     //=========================================================================
-    // 13. 최종 시스템 활성화
+    // 13. DCL PI 컨트롤러 초기화
+    //=========================================================================
+    InitDCLControllers(); // DCL 기반 PI 컨트롤러 초기화
+    
+    //=========================================================================
+    // 14. 최종 시스템 활성화
     //=========================================================================
     ServiceDog(); // 워치독 리셋
     
@@ -349,7 +348,7 @@ void main(void) {
     IcomTemp = 2000; // 초기 전류 지령값
 
     //=========================================================================
-    // 14. 메인 루프
+    // 15. 메인 루프
     //=========================================================================
     for (;;)
     {
@@ -560,11 +559,15 @@ __interrupt void epwm3_isr(void) { // 100KHz
             break;
 
         //---------------------------------------------------------------------  
-        // Case 1: 통합 PI 제어 (충전/방전 자동 선택) - **테스트용**
+        // Case 1: 통합 PI 제어 (충전/방전 자동 선택)
         //---------------------------------------------------------------------
         case 1:
-            // 통합 PI 제어기 실행 (I_com 부호에 따라 자동 모드 선택)
-            PIControlUnified();
+            // PI 제어기 선택 실행 (플래그에 따라 DCL 또는 기존 방식)
+            if (use_dcl_controller) {
+                PIControlDCL();        // DCL 기반 최적화된 PI 제어 (권장)
+            } else {
+                PIControlUnified();    // 기존 PI 제어 (호환성용)
+            }
             
             controlPhase++;
             break;
@@ -835,6 +838,106 @@ void PIControlUnified(void) {
         ki_accumulator_charge = Vol_err_PI_out - kp_out;
         if      (ki_accumulator_charge > I_com_1) ki_accumulator_charge = I_com_1;
         else if (ki_accumulator_charge < -2)      ki_accumulator_charge = -2;
+    }
+}
+
+//=============================================================================
+// DCL PI Controller Functions (DCL 기반 PI 제어 함수들)
+//=============================================================================
+
+/**
+ * @brief DCL PI 컨트롤러 초기화 함수
+ * 충전/방전 모드별 독립적인 PI 컨트롤러를 초기화하고 파라미터를 설정
+ */
+void InitDCLControllers(void) {
+    // DCL PI 구조체 기본값으로 초기화
+    dcl_pi_charge = (DCL_PI)PI_DEFAULTS;
+    dcl_pi_discharge = (DCL_PI)PI_DEFAULTS;
+    
+    // 공통 지원 구조체 초기화
+    dcl_css_common.T = Tsampl;        // 샘플링 시간 50us
+    dcl_css_common.err = 0;           // 에러 플래그 초기화
+    dcl_css_common.sts = 0;           // 상태 플래그 초기화
+    
+    // 공통 지원 구조체 연결
+    dcl_pi_charge.css = &dcl_css_common;
+    dcl_pi_discharge.css = &dcl_css_common;
+    
+    //=========================================================================
+    // 충전용 PI 컨트롤러 설정
+    //=========================================================================
+    dcl_pi_charge.Kp = Kp;              // 비례 게인
+    dcl_pi_charge.Ki = Ki * Tsampl;      // 적분 게인 (이산화)
+    dcl_pi_charge.Umax = I_MAX;          // 초기 상한값 (동적으로 변경됨)
+    dcl_pi_charge.Umin = -2.0f;          // 하한값
+    dcl_pi_charge.i10 = 0.0f;            // 적분기 상태 초기화
+    dcl_pi_charge.i6 = 1.0f;             // Anti-windup 상태 초기화
+    
+    //=========================================================================
+    // 방전용 PI 컨트롤러 설정
+    //=========================================================================
+    dcl_pi_discharge.Kp = Kp;           // 비례 게인
+    dcl_pi_discharge.Ki = Ki * Tsampl;   // 적분 게인 (이산화)
+    dcl_pi_discharge.Umax = 2.0f;        // 상한값
+    dcl_pi_discharge.Umin = -I_MAX;      // 초기 하한값 (동적으로 변경됨)
+    dcl_pi_discharge.i10 = 0.0f;         // 적분기 상태 초기화
+    dcl_pi_discharge.i6 = 1.0f;          // Anti-windup 상태 초기화
+}
+
+/**
+ * @brief DCL 기반 통합 PI 제어 함수
+ * 
+ * DCL_runPI_C1 어셈블리 함수를 사용하여 최적화된 PI 제어 수행
+ * 충전/방전 모드에 따라 적절한 컨트롤러 선택 및 bumpless transfer 구현
+ */
+void PIControlDCL(void) {
+    float32_t pi_output;
+    
+    if (I_com >= 0) {
+        // =====================================================================
+        // 충전 모드 (I_com >= 0): 고전압 제어
+        // =====================================================================
+        
+        // 동적 상한값 업데이트 (전류 제한에 따라)
+        dcl_pi_charge.Umax = I_com_1;
+        
+        // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
+        pi_output = DCL_runPI_C1(&dcl_pi_charge, Voh_com, Vo);
+        
+        // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
+        Voh_Err = Voh_com - Vo;                           // 에러 계산
+        Voh_KP_out = dcl_pi_charge.Kp * Voh_Err;          // 비례항
+        Voh_KI_out = dcl_pi_charge.i10;                   // 적분항 상태
+        Voh_err_PI_out = pi_output;                       // PI 출력
+        
+        // 방전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
+        // 방전 모드로 전환될 때 급격한 출력 변화 방지
+        dcl_pi_discharge.i10 = pi_output - dcl_pi_discharge.Kp * (Vol_com - Vo);
+        if (dcl_pi_discharge.i10 > 2.0f) dcl_pi_discharge.i10 = 2.0f;
+        else if (dcl_pi_discharge.i10 < I_com_1) dcl_pi_discharge.i10 = I_com_1;
+        
+    } else {
+        // =====================================================================
+        // 방전 모드 (I_com < 0): 저전압 제어
+        // =====================================================================
+        
+        // 동적 하한값 업데이트 (전류 제한에 따라)
+        dcl_pi_discharge.Umin = I_com_1;
+        
+        // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
+        pi_output = DCL_runPI_C1(&dcl_pi_discharge, Vol_com, Vo);
+        
+        // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
+        Vol_Err = Vol_com - Vo;                           // 에러 계산
+        Vol_KP_out = dcl_pi_discharge.Kp * Vol_Err;       // 비례항
+        Vol_KI_out = dcl_pi_discharge.i10;                // 적분항 상태
+        Vol_err_PI_out = pi_output;                       // PI 출력
+        
+        // 충전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
+        // 충전 모드로 전환될 때 급격한 출력 변화 방지
+        dcl_pi_charge.i10 = pi_output - dcl_pi_charge.Kp * (Voh_com - Vo);
+        if (dcl_pi_charge.i10 > I_com_1) dcl_pi_charge.i10 = I_com_1;
+        else if (dcl_pi_charge.i10 < -2.0f) dcl_pi_charge.i10 = -2.0f;
     }
 }
 

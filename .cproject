@@ -43,6 +43,7 @@
                                     <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\device_support\f2806x\common\include"/>
                                     <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\device_support\f2806x\headers\include"/>
                                     <listOptionValue value="${CG_TOOL_ROOT}/include"/>
+                                    <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\libraries\control\DCL\c28\include"/>
                                 </option>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ADVICE__PERFORMANCE.431782023" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ADVICE__PERFORMANCE" value="--advice:performance=all" valueType="string"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.DEFINE.610679811" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.DEFINE" valueType="definedSymbols">
@@ -175,6 +176,7 @@
                                     <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\device_support\f2806x\common\include"/>
                                     <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\device_support\f2806x\headers\include"/>
                                     <listOptionValue value="${CG_TOOL_ROOT}/include"/>
+                                    <listOptionValue value="${COM_TI_C2000WARE_INSTALL_DIR}\libraries\control\DCL\c28\include"/>
                                 </option>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ADVICE__PERFORMANCE.431782023" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ADVICE__PERFORMANCE" value="--advice:performance=all" valueType="string"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.DEFINE.41291598" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.DEFINE" valueType="definedSymbols">
