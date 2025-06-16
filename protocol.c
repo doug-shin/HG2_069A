@@ -520,10 +520,10 @@ void TransitionToRunning(void) {
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
-    Run = 1;
+    system_state = STATE_RUNNING;
     
     // 상태 변경
-    protocol.state_machine = STATE_RUNNING;
+    protocol.state_machine = MACHINE_STATE_RUNNING;
     protocol.status = OPERATING;
     
     // 운전 시간 초기화 (필요한 경우)
@@ -581,13 +581,13 @@ void TransitionToIdle(void) {
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
-    Run = 0;
+    system_state = STATE_STOP;
     
     // 전류 지령 0으로 설정
     uiCurrentCommand.f = 0.0f;
     
     // 상태 변경
-    protocol.state_machine = STATE_IDLE;
+    protocol.state_machine = MACHINE_STATE_IDLE;
     protocol.status = READY;
     
     // 종료 보고용 메일박스 활성화 (MBOX18~23, 6개)
@@ -621,7 +621,7 @@ void CheckCANHeartBitTimeout(void) {
         
         // 타임아웃 발생 시 필요한 처리 추가
         // 예: 오류 상태로 전환, 알람 발생 등
-        if(protocol.state_machine == STATE_RUNNING)
+        if(protocol.state_machine == MACHINE_STATE_RUNNING)
         {
             // 실행 중인 경우 안전을 위해 IDLE 상태로 전환
             TransitionToIdle();

@@ -106,6 +106,15 @@ typedef union {
 extern volatile struct ECAN_REGS ECanaShadow;
 
 /**
+ * @brief 시스템 운전 상태 열거형
+ * @details Modbus 및 CAN을 통해 제어되는 시스템 운전/정지 상태
+ */
+typedef enum {
+    STATE_STOP = 0,     ///< 시스템 정지
+    STATE_RUNNING = 1   ///< 시스템 운전
+} SYSTEM_STATE;
+
+/**
  * @brief 충전/방전 모드 열거형
  * @details Modbus를 통해 제어 컴퓨터에서 설정되는 운전 모드
  */
@@ -145,8 +154,7 @@ void modbus_parse(void);
 //=============================================================================
 eCharge_DisCharge_Mode eChargeMode;  ///< 현재 충전/방전 모드
 Uint32 mainLoopCount = 0;            ///< 메인 루프 카운터 (디버깅용)
-Uint16 Run = 0;                      ///< 시스템 운전 상태 (0: 정지, 1: 운전)
-Uint16 start_stop = 0;               ///< 시작/정지 명령
+SYSTEM_STATE system_state = STATE_STOP;     ///< 시스템 운전 상태 (Modbus/CAN 통합)
 eConfig_USART_send_period USART_send_period = e50us; ///< USART 전송 주기
 
 //=============================================================================
@@ -639,52 +647,7 @@ void eCanaConfig(void);
 
 /** @} */
 
-//-----------------------------------------------------------------------------
-// G. Protocol and Communication Functions (프로토콜 및 통신 함수)
-//-----------------------------------------------------------------------------
-
-/**
- * @defgroup Protocol_Functions 프로토콜 통신 함수
- * @brief 제어 컴퓨터와의 CAN 프로토콜 통신 관련 함수들
- * @note 이 부분은 별도 추가된 프로토콜 시스템 (MBOX 16~31 사용)
- * @{
- */
-
-/**
- * @brief 프로토콜 초기화
- * @details 제어 컴퓨터와의 CAN 프로토콜 통신 초기화
- */
-void InitProtocol(void);
-
-/**
- * @brief CAN 명령 처리
- * @param rxMbox 수신 메일박스 번호
- * @param txMbox 송신 메일박스 번호
- * @details 제어 컴퓨터로부터의 CAN 명령 처리
- */
-void ProcessCANCommand(Uint32 rxMbox, Uint32 txMbox);
-
-/**
- * @brief CAN 피드백 값 업데이트
- * @details 제어 컴퓨터로 전송할 피드백 데이터 업데이트
- */
-void UpdateCANFeedbackValues(void);
-
-/**
- * @brief 운전 상태로 전환
- * @details 시스템을 운전 상태로 전환
- */
-void TransitionToRunning(void);
-
-/**
- * @brief 대기 상태로 전환
- * @details 시스템을 대기 상태로 전환
- */
-void TransitionToIdle(void);
-
-/** @} */
-
-#else
+#else // ifndef _MAIN_C_
 
 //=============================================================================
 // External Variable Declarations
@@ -697,7 +660,7 @@ extern int16  Iout_Reference;
 extern float32 In_Temp;
 extern float fADC_voltage;
 extern float32 Vo, currentAvg;          // Output voltage and current average
-extern Uint16 start_stop;
+extern SYSTEM_STATE system_state;              // System operation state (unified)
 
 extern Uint32 controlPhase, __100ms_flag, __1000ms_flag;
 extern float Power;
@@ -708,7 +671,6 @@ extern eConfig_USART_send_period USART_send_period;
 extern float I_com_1;                              // Current command intermediate value
 extern unsigned int voltageCount;                  // Voltage monitoring counter
 extern float voltageMean;                          // Voltage mean value
-extern Uint16 Run;                                 // System run state
 
 // DCL Controller External Declarations
 extern DCL_PI dcl_pi_charge, dcl_pi_discharge;     // DCL PI 컨트롤러들

@@ -66,9 +66,9 @@
 
 // 모듈 상태 정의
 typedef enum {
-    STATE_IDLE = 0,    // 대기 상태
-    STATE_RUNNING = 1  // 운전 상태
-} STATE;
+    MACHINE_STATE_IDLE = 0,    // 대기 상태
+    MACHINE_STATE_RUNNING = 1  // 운전 상태
+} MACHINE_STATE;
 
 // 모듈 동작 상태 정의
 typedef enum {
@@ -132,7 +132,7 @@ typedef enum {
 // 통합 프로토콜 구조체 (protocol.md 순서 반영)
 typedef struct {
     // 1. 기본 정보
-    STATE state_machine;      // 모듈 상태 머신 (STATE_IDLE or STATE_RUNNING)
+    MACHINE_STATE state_machine;      // 모듈 상태 머신 (MACHINE_STATE_IDLE or MACHINE_STATE_RUNNING)
     Uint8 channel;            // 채널 번호
     MODE mode;                // 운전 모드
     STATUS status;            // 상태
@@ -287,7 +287,6 @@ extern Uint16 can_360_timeout_counter; // Heart Bit 타임아웃 카운터
 extern Uint16 can_360_timeout_flag;    // Heart Bit 타임아웃 플래그
 
 extern Uint16 hw_fault;
-extern Uint16 Run;
 extern float32 Vo_sen;
 extern Uint16 over_voltage_flag;
 

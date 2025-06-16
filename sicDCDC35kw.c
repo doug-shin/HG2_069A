@@ -5,17 +5,17 @@
  * 
  * @details 시스템 아키텍처 및 통신 구조:
  * 
- * ┌─────────────────┐    SCI Modbus RTU     ┌─────────────────┐
- * │   제어 컴퓨터    │◄──────38400bps──────►│   마스터 모듈    │
- * │  (Control PC)   │    CAN Protocol      │  (Master F28069) │
+ * ┌─────────────────┐    SCI Modbus RTU    ┌─────────────────┐
+ * │   제어 컴퓨터      │◄──────38400bps──────►│   마스터 모듈      │
+ * │  (Control PC)   │    CAN Protocol      │  (Master F28069)│
  * └─────────────────┘◄──────500kbps───────►└─────────────────┘
- *                                                    │
+ *                                                   │
  *                                          SCI 485  │ 5.625Mbps
- *                                        (전류지령   │ 브로드캐스팅)
+ *                                         (전류지령   │ 브로드캐스팅)
  *                                         브로드캐스팅)│
- *                                                    ▼
+ *                                                   ▼
  *                    ┌─────────────────┬─────────────────┬─────────────────┐
- *                    │   슬레이브 1     │   슬레이브 2     │   슬레이브 N     │
+ *                    │   슬레이브 1      │   슬레이브 2       │   슬레이브 N      │
  *                    │ (Slave F28069)  │ (Slave F28069)  │ (Slave F28069)  │
  *                    └─────────────────┴─────────────────┴─────────────────┘
  *                            │                 │                 │
@@ -112,8 +112,9 @@ extern __interrupt void cpuTimer1ExpiredISR( void );
 extern USHORT usRegInputBuf[REG_INPUT_NREGS];
 extern USHORT usRegHoldingBuf[REG_HOLDING_NREGS];
 
-Uint16 type_size = 0;
 Uint16 cpu_timer0_cnt = 0, cpu_timer1_cnt = 0, cpu_timer2_cnt = 0;
+Uint16 spi_interrupt_cnt = 0;
+Uint32 epwm3_isr_cnt = 0;
 
 //PI
 float32 rx_adc_data_buf_ave = 0.0f;
@@ -121,9 +122,6 @@ float32 rx_adc_data_buf_ave = 0.0f;
 float v_ref = 5.;
 
 Uint16 tx_count = 0, count_num = 100;
-
-#define STOP (0)
-#define START (1)
 
 //*****************************************************************************
 // DAC Reference Voltage Configuration
@@ -136,10 +134,7 @@ Uint16 tx_count = 0, count_num = 100;
 #define FAST_REF_E 0xD000 //외부
 #define SLOW_REF_E 0x9000
 
-Uint16 fifo_err_cnt = 0;
-
-Uint16 force_reset_test = 0;
-
+Uint16 force_reset_test = 0, fifo_err_cnt = 0;
 
 // 전송 제어 문자
 #define STX (0x02) // Start of Text, 본문의 개시 및 정보 메세지 헤더의 종료를 표시
@@ -418,8 +413,8 @@ void main(void) {
             can_tx_flag = 0;
             
             // 운전 상태에 따른 CAN 메시지 설정
-            if(Run == 1) ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0;
-            else         ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;
+            if(system_state == STATE_RUNNING) ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0;
+            else                              ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;
 
             ECanaRegs.CANTRS.all = 0x00000001; // 전송 요청
 
@@ -527,7 +522,6 @@ __interrupt void cpu_timer2_isr(void) {
 /**
  * @brief SPI 인터럽트 서비스 루틴
  */
-Uint16 spi_interrupt_cnt;
 __interrupt void spi_isr(void) {
     spi_interrupt_cnt++;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP6;
@@ -536,13 +530,11 @@ __interrupt void spi_isr(void) {
 /**
  * @brief ePWM1 인터럽트 서비스 루틴 (팬 PWM 제어용)
  */
-Uint16 epwm1_isr_cnt, led2_on;
 __interrupt void epwm1_isr(void) {
     EPwm1Regs.ETCLR.bit.INT = 1; // 인터럽트 플래그 클리어
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
 }
 
-Uint16 epwm3_isr_cnt, check_counter;
 /**
  * @brief ePWM3 인터럽트 서비스 루틴 (100kHz 호출)
  * 
@@ -661,12 +653,12 @@ __interrupt void epwm3_isr(void) { // 100KHz
             I_ss += I_MAX * 0.00005f;
             if (I_ss > I_MAX) I_ss = I_MAX;
 
-            // 방전 FET 제어 (Run 신호에 따른 1초 지연)
-            if (!Run) {
+            // 방전 FET 제어 (system_state에 따른 1초 지연)
+            if (system_state == STATE_STOP) {
                 I_ss = 0;
             }
 
-            if (Run) {
+            if (system_state == STATE_RUNNING) {
                 if(Run_on_count++ >= 20000) { // 1초 후 방전 FET OFF
                     Run_on_count = 20000;
                     GpioDataRegs.GPADAT.bit.GPIO19 = 1; // 방전 FET OFF
@@ -694,12 +686,12 @@ __interrupt void epwm3_isr(void) { // 100KHz
 
             // 운전 조건 확인 (하드웨어 폴트, 과전압, 스위치 입력)
             if (hw_fault == 0 && over_voltage_flag == 0 && power_switch == 1) {
-                Run = 1;
+                system_state = STATE_RUNNING;
             }
 
             // Buck 인에이블 제어
-            if(Run) GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
-            else    GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
+            if(system_state == STATE_RUNNING) GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
+            else                              GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
 
             controlPhase++;
             break;
@@ -789,11 +781,11 @@ __interrupt void adc_isr(void) {
     // ADC conversions - SOC0 시작
     AdcRegs.ADCSOCFRC1.all = 0x07; // SOC0, SOC1, SOC2
 
-    Temp_ad = AdcResult.ADCRESULT0;  // 온도 ADC 결과
-    currentAdc = AdcResult.ADCRESULT1;    // 전류 ADC 결과
-    Vo_ad = AdcResult.ADCRESULT2;    // 전압 ADC 결과
+    Temp_ad = AdcResult.ADCRESULT0;     // 온도 ADC 결과
+    currentAdc = AdcResult.ADCRESULT1;  // 전류 ADC 결과
+    Vo_ad = AdcResult.ADCRESULT2;       // 전압 ADC 결과
 
-    AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1; // Clear ADCINT1 flag to reinitialize for next SOC
+    AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1;     // Clear ADCINT1 flag to reinitialize for next SOC
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;   // Acknowledge interrupt to PIE
     return;
 }
@@ -1056,7 +1048,7 @@ void PIControlDCL(void) {
  * @section modbus_registers Modbus 레지스터 맵
  * - **Input Register 4-5**: 총 출력 전류 (32bit float)
  * - **Input Register 10-11**: 평균 전압 (32bit float)
- * - **Holding Register 0**: 시작/정지 명령 (bit 3: START, bit 4: STOP)
+ * - **Holding Register 0**: 시작/정지 명령 (bit 3: SYSTEM_START, bit 4: SYSTEM_STOP)
  * - **Holding Register 2**: 운전 모드 (강제로 64 설정)
  * - **Holding Register 5**: 전압 기준값
  * - **Holding Register 7-8**: 전류 지령 (32bit float)
@@ -1086,31 +1078,31 @@ void ParseModbusData(void) {
     usRegInputBuf[11] = (Uint16) (voltageSensorAvg.u >> 16);
 
     // 시작/정지 명령 처리
-    if     (usRegHoldingBuf[0] & 0x0008)  start_stop = START;
-    else if(usRegHoldingBuf[0] & 0x0010)  start_stop = STOP;
+    if     (usRegHoldingBuf[0] & 0x0008)  system_state = STATE_RUNNING;
+    else if(usRegHoldingBuf[0] & 0x0010)  system_state = STATE_STOP;
 
     // 충전/방전 모드 설정 (강제로 64 설정)
-    usRegHoldingBuf[2] = 64; // force value
+    usRegHoldingBuf[2] = 64; // 배터리 충전/방전 CC 모드 (64) 강제 설정
     eChargeMode = (eCharge_DisCharge_Mode)usRegHoldingBuf[2];
 
     // 운전 모드에 따른 설정값 처리
     switch(eChargeMode) {
-        case ElectronicLoad_CV_Mode:        // 전자부하 CV 모드
-        case ElectronicLoad_CC_Mode:        // 전자부하 CC 모드
-        case PowerSupply_CV_Mode:           // 전원공급 CV 모드
-        case PowerSupply_CC_Mode:           // 전원공급 CC 모드
-        case As_a_Battery_CV_Mode:          // 배터리 시뮬레이션 CV 모드
+        case ElectronicLoad_CV_Mode:        // 전자부하 CV 모드          (2)
+        case ElectronicLoad_CC_Mode:        // 전자부하 CC 모드          (4)
+        case PowerSupply_CV_Mode:           // 전원공급 CV 모드         (16)
+        case PowerSupply_CC_Mode:           // 전원공급 CC 모드         (32)
+        case As_a_Battery_CV_Mode:          // 배터리 시뮬레이션 CV 모드 (128)
             Vout_Reference = usRegHoldingBuf[5]; 
             Iout_Reference = ((int16)usRegHoldingBuf[7]); 
             break;
             
-        case ElectronicLoad_CR_Mode:        // 전자부하 CR 모드
+        case ElectronicLoad_CR_Mode:        // 전자부하 CR 모드          (8)
             Vout_Reference = usRegHoldingBuf[5]; 
             Iout_Reference = ((int16)usRegHoldingBuf[7]);
             loadResistance.u = (((Uint32)usRegHoldingBuf[10]<<16) | (Uint32)usRegHoldingBuf[9]);
             break;
             
-        case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드
+        case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드  (64)
             Voh_com = usRegHoldingBuf[5];
             Vol_com = usRegHoldingBuf[12];
             Iout_Reference = ((int16)usRegHoldingBuf[7]);
