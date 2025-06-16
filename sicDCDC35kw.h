@@ -46,7 +46,7 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 //*****************************************************************************
 // System Constants and Configuration
 //*****************************************************************************
-#define I_MAX (80)                    ///< 최대 전류 제한값 (A)
+#define I_MAX (80.0f)                 ///< 최대 전류 제한값 (A)
 #define MODULE_NUM (1)                ///< 모듈 개수
 #define OVER_VOLTAGE (1100)           ///< 과전압 보호 임계값 (V)
 
@@ -170,23 +170,19 @@ eConfig_USART_send_period USART_send_period = e50us; ///< USART 전송 주기
 // Current Commands (전류 지령)
 float32 I_com_set = 0;           ///< 최종 전류 지령값 (DAC 출력용)
 float32 I_com = 0;               ///< 기본 전류 지령 (Modbus에서 수신)
-float32 Icom = 0;                ///< 전류 지령 (실제 사용)
-float32 Icom_Pos = 0, Icom_Pos1 = 0;  ///< 양의 전류지령 (충전모드)
-float32 Icom_Neg = 0, Icom_Neg1 = 0;  ///< 음의 전류지령 (방전모드)
-float32 I_manual = 0;            ///< 수동 전류 지령
 
 // Current Sensing and Feedback  
-float32 currentAvg = 0;              ///< 마스터 모듈 평균 출력 전류
-float32 currentSensorSum = 0;        ///< 전류 센서 합계 (모니터링용)
-Uint32 currentAdcSum = 0;            ///< ADC 합계 (평균 계산용)
-Uint16 currentAdc = 0;               ///< 현재 전류 ADC 값
-Uint16 currentAvgCount = 0;          ///< 전류 평균 계산 카운터
+float32 I_avg = 0;               ///< 마스터 모듈 평균 출력 전류
+float32 I_fb_sum = 0;            ///< 전류 센서 합계 (모니터링용)
+Uint32 I_ADC_sum = 0;            ///< ADC 합계 (평균 계산용)
+Uint16 I_ADC = 0;                ///< 현재 전류 ADC 값
+Uint16 I_avg_count = 0;          ///< 전류 평균 계산 카운터
 
 // PI Controller Current Variables
-float32 Icom_ss_old = 0;         ///< 이전 정상상태 전류 지령
-float32 Icom_ss = 0;             ///< 정상상태 전류 지령
-float32 I_ss_old, I_ss, I_ss_old2;  ///< 소프트 스타트 관련 변수
-float I_com_1;                   ///< PI 제어용 중간 전류 지령값
+float32 I_cmd_ss_prev = 0;       ///< 이전 정상상태 전류 지령
+float32 I_cmd_ss = 0;            ///< 정상상태 전류 지령
+float32 I_ss, I_ss_prev, I_ss_prev2; ///< 소프트 스타트 관련 변수
+float32 I_cmd_PI;                ///< PI 제어용 중간 전류 지령값
 
 /** @} */
 
@@ -202,34 +198,33 @@ float I_com_1;                   ///< PI 제어용 중간 전류 지령값
 
 // Voltage Commands (전압 지령)
 float32 V_com = 0;               ///< 기본 전압 지령
-float32 Voh_com = 0;             ///< 고전압 지령 (충전 모드용)
-float32 Vol_com = 0;             ///< 저전압 지령 (방전 모드용)
+float32 V_lim_max = 0;           ///< 고전압 지령 (충전 모드용)
+float32 V_lim_min = 0;           ///< 저전압 지령 (방전 모드용)
 float32 Bat_Mean = 0;            ///< 배터리 평균 전압
 
 // Voltage Sensing and Feedback
-float32 Vo = 0;                  ///< 출력 전압 (PI 제어용)
-volatile float32 Vo_ad;          ///< 전압 ADC 원시값
-float32 Vo_sen_sum = 0;          ///< 전압 센서 합계
-float32 Voffset = 0;             ///< 전압 오프셋
-float32 Vscale = 0;              ///< 전압 스케일
+float32 V_out = 0;               ///< 출력 전압 (PI 제어용)
+volatile float32 V_out_ADC;      ///< 전압 ADC 원시값
+float32 V_out_fb_sum = 0;        ///< 전압 센서 합계
+float32 V_offset = 0;            ///< 전압 오프셋
+float32 V_scale = 0;             ///< 전압 스케일
 
 // Voltage Monitoring Variables
-unsigned int MonitoringCount = 0; ///< 전압 모니터링 카운터
-float Vo_sen_sum_mon = 0.;       ///< 모니터링용 전압 센서 합계
-float Vo_Mean = 0.;              ///< 전압 평균값
+Uint32 mon_count = 0;            ///< 전압 모니터링 카운터
+float32 V_out_fb_mon = 0.;       ///< 모니터링용 전압 센서 합계
+float32 V_out_avg = 0.;          ///< 전압 평균값
 
 // PI Controller Voltage Variables
-float32 Vo_Err = 0;              ///< 전압 오차
-float32 Voh_Err = 0;             ///< 고전압 오차 (충전 모드)
-float32 Vol_Err = 0;             ///< 저전압 오차 (방전 모드)
-float32 Vo_err_PI_out = 0;       ///< 전압 오차 PI 출력
-float32 Voh_err_PI_out = 0;      ///< 고전압 오차 PI 출력 (충전 모드)
-float32 Vol_err_PI_out = 0;      ///< 저전압 오차 PI 출력 (방전 모드)
+float32 V_out_error = 0;         ///< 전압 오차
+float32 V_lim_max_error = 0;     ///< 고전압 오차 (충전 모드)
+float32 V_lim_min_error = 0;     ///< 저전압 오차 (방전 모드)
+float32 V_out_error_PI_out = 0;  ///< 전압 오차 PI 출력
+float32 V_lim_max_error_PI_out = 0; ///< 고전압 오차 PI 출력 (충전 모드)
+float32 V_lim_min_error_PI_out = 0; ///< 저전압 오차 PI 출력 (방전 모드)
 
 // Reference Values
 Uint16 Vout_Reference;           ///< 전압 기준값 (Modbus에서 수신)
 int16  Iout_Reference;           ///< 전류 기준값 (Modbus에서 수신)
-Uint16 V_high_limit, V_low_limit; ///< 전압 상하한 제한값
 
 /** @} */
 
@@ -249,15 +244,15 @@ float32 Ki = 3000;               ///< 적분 게인
 float32 Tsampl = 50E-6;          ///< 샘플링 시간 (50us, 20kHz)
 
 // PI Outputs - Proportional Term
-float32 KP_out = 0;              ///< 일반 비례 출력
-float32 Voh_KP_out = 0;          ///< 고전압 비례 출력
-float32 Vol_KP_out = 0;          ///< 저전압 비례 출력
+float32 kP_out = 0;              ///< 일반 비례 출력
+float32 V_lim_max_kP_out = 0;    ///< 고전압 비례 출력
+float32 V_lim_min_kP_out = 0;    ///< 저전압 비례 출력
 
 // PI Outputs - Integral Term
-float32 KI_out_old = 0;          ///< 이전 적분 출력
-float32 KI_out = 0;              ///< 일반 적분 출력
-float32 Voh_KI_out = 0;          ///< 고전압 적분 출력
-float32 Vol_KI_out = 0;          ///< 저전압 적분 출력
+float32 kI_out_prev = 0;         ///< 이전 적분 출력
+float32 kI_out = 0;              ///< 일반 적분 출력
+float32 V_lim_max_kI_out = 0;    ///< 고전압 적분 출력
+float32 V_lim_min_kI_out = 0;    ///< 저전압 적분 출력
 
 /** @} */
 
@@ -292,14 +287,14 @@ Uint16 use_dcl_controller = 1;   ///< DCL 제어기 사용 플래그 (1: DCL 사
  */
 
 // Temperature Sensing (온도 센싱)
-float32 In_Temp = 0;             ///< 실제 온도값 (°C)
-volatile float32 Temp_ad;        ///< 온도 ADC 원시값
-float32 Temp_ad_sen = 0;         ///< 온도 ADC 센서값
-float32 Temp_ad_sen_1 = 0;       ///< 온도 ADC 센서값 1
+float32 temp_in = 0;             ///< 실제 온도값 (°C)
+volatile float32 temp_ADC;       ///< 온도 ADC 원시값
+float32 temp_ADC_fb = 0;         ///< 온도 ADC 센서값
+float32 temp_ADC_fb_alt = 0;     ///< 온도 ADC 센서값 1
 
 // Fan Control
 float32 fan_pwm_duty = 0.15;     ///< 팬 PWM 듀티 사이클 (15~90%)
-float32 fan_pwm_duty_temp = 0.;  ///< 팬 PWM 듀티 임시 계산값
+float32 fan_pwm_duty_tmp = 0.;   ///< 팬 PWM 듀티 임시 계산값
 
 /** @} */
 
@@ -313,10 +308,10 @@ float32 fan_pwm_duty_temp = 0.;  ///< 팬 PWM 듀티 임시 계산값
  * @{
  */
 
-int deg_sDacTmp;                 ///< DAC 임시 변수
+int16 deg_sDacTmp;               ///< DAC 임시 변수
 
 // SPI Communication
-Uint16 IcomTemp = 0, spi_tx_temp = 0;  ///< SPI 전송용 임시 변수들
+Uint16 spi_tx_tmp = 0;   ///< SPI 전송용 임시 변수
 
 /** @} */
 
@@ -352,8 +347,8 @@ Uint16 dab_ok_fault = 0, dab_ok = 0;            ///< DAB 상태 플래그들
  */
 
 Uint16 dummy;                    ///< 더미 변수
-Uint16 Vo_m = 0;                 ///< 전압 측정값
-Uint16 Average_count = 0;        ///< 일반 평균 카운터
+Uint16 V_out_measured = 0;       ///< 전압 측정값
+Uint16 average_count = 0;        ///< 일반 평균 카운터
 Uint16 over_voltage_flag = 0;    ///< 과전압 플래그
 
 /** @} */
@@ -369,12 +364,12 @@ Uint16 over_voltage_flag = 0;    ///< 과전압 플래그
  */
 
 // Modbus and Communication
-UNIONFLOAT loadResistance, uiCurrentCommand;    ///< 부하 저항, UI 전류 지령
-UNIONFLOAT currentSense[10];        ///< 슬레이브 전류 센서 배열 (인덱스 1~9 사용)
-UNIONFLOAT currentSensor, totalCurrentSensor, voltageSensorAvg; ///< 센서 데이터
+UNIONFLOAT load_resistance, UI_I_cmd;   ///< 부하 저항, UI 전류 지령
+UNIONFLOAT I_fb_array[10];       ///< 슬레이브 전류 센서 배열 (인덱스 1~9 사용)
+UNIONFLOAT I_sensor, I_fb_total, V_fb_avg; ///< 센서 데이터
 
 // Serial Communication
-float fADC_voltage, Vo_sen;      ///< ADC 전압 변수들
+float32 V_ADC, V_out_fb;         ///< ADC 전압 변수들
 
 /** @} */
 
@@ -389,15 +384,15 @@ float fADC_voltage, Vo_sen;      ///< ADC 전압 변수들
  */
 
 // Calculation Variables
-float currentCmdTemp;            ///< 전류 지령 임시 계산 변수
-float32 Voh1, Vol1;              ///< 전압 고/저 임시값
-float Power;                     ///< 전력 계산값
-int16 irefTemp;                  ///< 전류 기준 임시 변수
+float32 I_cmd_tmp;               ///< 전류 지령 임시 계산 변수
+float32 V_lim_max_tmp, V_lim_min_tmp; ///< 전압 고/저 임시값
+float32 power;                   ///< 전력 계산값
+int16 I_ref_tmp;                 ///< 전류 기준 임시 변수
 
 // Voltage Monitoring Variables (TI style naming)
-unsigned int voltageCount = 0;   ///< 전압 모니터링 카운터
-float voltageSumMonitor = 0.;    ///< 모니터링용 전압 센서 합계
-float voltageMean = 0.;          ///< 전압 평균값
+Uint32 V_count = 0;              ///< 전압 모니터링 카운터
+float32 V_sum_mon = 0.;          ///< 모니터링용 전압 센서 합계
+float32 V_avg = 0.;              ///< 전압 평균값
 
 /** @} */
 
@@ -652,25 +647,24 @@ void eCanaConfig(void);
 //=============================================================================
 // External Variable Declarations
 //=============================================================================
-extern Uint16 V_high_limit, V_low_limit;
 extern eCharge_DisCharge_Mode eChargeMode;
 extern Uint16 Vout_Reference;
 extern int16  Iout_Reference;
 
-extern float32 In_Temp;
-extern float fADC_voltage;
-extern float32 Vo, currentAvg;          // Output voltage and current average
+extern float32 temp_in;
+extern float32 V_ADC;
+extern float32 V_out, I_avg;          // Output voltage and current average
 extern SYSTEM_STATE system_state;              // System operation state (unified)
 
 extern Uint32 controlPhase, __100ms_flag, __1000ms_flag;
 extern float Power;
-extern int16 irefTemp;
+extern int16 iref_tmp;
 extern eConfig_USART_send_period USART_send_period;
 
 // Additional External Declarations
-extern float I_com_1;                              // Current command intermediate value
-extern unsigned int voltageCount;                  // Voltage monitoring counter
-extern float voltageMean;                          // Voltage mean value
+extern float32 I_cmd_PI;                              // Current command intermediate value
+extern Uint32 V_count;                  // Voltage monitoring counter
+extern float32 V_avg;                          // Voltage mean value
 
 // DCL Controller External Declarations
 extern DCL_PI dcl_pi_charge, dcl_pi_discharge;     // DCL PI 컨트롤러들

@@ -7,10 +7,10 @@
 
 // 외부 모듈 변수 선언 (sicDCDC35kw.h에서 정의됨)
 extern float32 Bat_Mean;
-extern float32 Voh_com;
-extern float32 Vol_com;
+extern float32 V_lim_max;
+extern float32 V_lim_min;
 extern float32 I_com;
-extern volatile float32 Vo_ad;
+extern volatile float32 V_out_ADC;
 
 /*----------------------------------------------------------------------
  * 전역 변수 정의
@@ -32,9 +32,9 @@ extern volatile struct ECAN_REGS ECanaShadow;
 // CAN 메일박스 배열 포인터 (최적화를 위해 전역으로 선언)
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
 
-extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
-extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
-extern float32 currentAvg;  // 전류 (A)
+extern float32 I_cmd_tmp; // 전류 지령 값 (A 단위)
+extern UNIONFLOAT UI_I_cmd; // 전류 지령 값 (A 단위)
+extern float32 I_avg;  // 전류 (A)
 
 /**
  * @brief 프로토콜 초기화 함수
@@ -144,9 +144,9 @@ void ProcessCANCommand(Uint32 isr_mbox, Uint32 ack_mbox)
                     protocol.state_bits.bit.pwr_status = 1;
                     
                     // 전압 및 전류 설정
-                    Bat_Mean = Vo_ad;
-                    Voh_com = Bat_Mean;
-                    Vol_com = 0;
+                    Bat_Mean = V_out_ADC;
+                    V_lim_max = Bat_Mean;
+                    V_lim_min = 0;
                     I_com = 2;
                     break;
                 
@@ -374,17 +374,17 @@ void SendCANEndReport(Uint32 mbox_num) {
  * 데이터 일관성을 위해 원자적으로 처리
  */
 void UpdateCANFeedbackValues(void) {
-    extern float32 Vo;      // 전압 (V)
-    extern float32 In_Temp;  // 35kW 프로그램의 온도 값 (°C)
+    extern float32 V_out;      // 전압 (V)
+    extern float32 temp_in;    // 35kW 프로그램의 온도 값 (°C)
     static Uint16 operation_tick_counter = 0;
     static Uint16 cv_tick_counter = 0;
     static Uint16 capacity_tick_counter = 0;
     float32 delta_capacity;
     
     // 1. 기본 피드백 값 업데이트 (단위 변환: V->mV, A->mA, °C->0.1°C)
-    protocol.fb_voltage = Vo * 1000.0f;       // V -> mV 변환
-    protocol.fb_current = currentAvg * 1000.0f;   // A -> mA 변환
-    protocol.fb_t1_temp = In_Temp * 10.0f;    // °C -> 0.1°C 변환
+    protocol.fb_voltage = V_out * 1000.0f;    // V -> mV 변환
+    protocol.fb_current = I_avg * 1000.0f;    // A -> mA 변환
+    protocol.fb_t1_temp = temp_in * 10.0f;    // °C -> 0.1°C 변환
     
     // 2. 운전 시간 업데이트 (운전 중일 때만)
     if (protocol.status == OPERATING) {
@@ -419,7 +419,7 @@ void UpdateCANFeedbackValues(void) {
             capacity_tick_counter = 0;
             
             // 전류값을 Ah로 변환 (A -> mAh)
-            delta_capacity = currentAvg * 0.2777778f;  // A -> mAh, 1000/3600 = 0.2777778
+            delta_capacity = I_avg * 0.2777778f;  // A -> mAh, 1000/3600 = 0.2777778
             
             // 충방전 용량 업데이트
             if (delta_capacity > 0) {
@@ -429,7 +429,7 @@ void UpdateCANFeedbackValues(void) {
             }
             
             // Wh 계산 (P = V * I)
-            power_w = protocol.fb_voltage * 0.001f * currentAvg;  // W (mV -> V 변환)
+            power_w = protocol.fb_voltage * 0.001f * I_avg;  // W (mV -> V 변환)
             delta_wh = power_w * 0.0002777778f;  // Wh (1/3600 = 0.0002777778)
             
             if (delta_wh > 0) {
@@ -512,11 +512,11 @@ void ChangeMBOXIDs(Uint16 base_id, Uint16 mbox_num, Uint16 count) {
  * @details 시작 명령 수신 시 운전 상태로 전환하고 관련 설정 적용
  */
 void TransitionToRunning(void) {
-    extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값 (A 단위)
-    extern float32 currentCmdTemp; // 전류 지령 값 (A 단위)
+    extern UNIONFLOAT UI_I_cmd; // 전류 지령 값 (A 단위)
+    extern float32 I_cmd_tmp; // 전류 지령 값 (A 단위)
     extern float32 I_com; // 전류 지령 값 (최종)
-    extern float32 Power; // 파워 지령 값 (W 단위)
-    extern float32 Voh_com, Vol_com; // 배터리 모드 전압 제한값
+    extern float32 power; // 파워 지령 값 (W 단위)
+    extern float32 V_lim_max, V_lim_min; // 배터리 모드 전압 제한값
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
@@ -544,29 +544,29 @@ void TransitionToRunning(void) {
     ChangeMBOXIDs(0x100, 16, 8);
     
     // 단위 변환: mA -> A
-    currentCmdTemp = protocol.cmd_current * 0.001f; // mA -> A 변환
+    I_cmd_tmp = protocol.cmd_current * 0.001f; // mA -> A 변환
 
     // 🔒 안전 제한 추가 (CAN 경로용)
-    if     (currentCmdTemp >  I_MAX) currentCmdTemp =  I_MAX;   // +80A 제한
-    else if(currentCmdTemp < -I_MAX) currentCmdTemp = -I_MAX;   // -80A 제한
+    if     (I_cmd_tmp >  I_MAX) I_cmd_tmp =  I_MAX;   // +80A 제한
+    else if(I_cmd_tmp < -I_MAX) I_cmd_tmp = -I_MAX;   // -80A 제한
 
     // I_com에 직접 반영 (CAN 경로 완성)
-    I_com = currentCmdTemp;
+    I_com = I_cmd_tmp;
     
     // 🔧 CAN 전압 지령을 전압 제한값으로 설정 (배터리 보호용)
     // V_com은 실제 제어에 사용되지 않으므로 제거
     if (protocol.cmd_voltage > 0) {
         // 양의 전압 지령: 충전 시 상한 전압으로 사용
-        Voh_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환
-        Vol_com = 0.0f; // 방전 하한은 0V로 설정
+        V_lim_max = protocol.cmd_voltage * 0.001f; // mV -> V 변환
+        V_lim_min = 0.0f; // 방전 하한은 0V로 설정
     } else {
         // 음의 전압 지령: 방전 시 하한 전압으로 사용  
-        Vol_com = protocol.cmd_voltage * 0.001f; // mV -> V 변환 (음수)
-        Voh_com = 1000.0f; // 충전 상한은 높은 값으로 설정
+        V_lim_min = protocol.cmd_voltage * 0.001f; // mV -> V 변환 (음수)
+        V_lim_max = 1000.0f; // 충전 상한은 높은 값으로 설정
     }
     
     // 파워 지령 설정 (필요한 경우)
-    Power = protocol.cmd_power * 0.001f; // mW -> W 변환
+    power = protocol.cmd_power * 0.001f; // mW -> W 변환
     
     // CAN 보고 간격 설정 (운전 상태: 10ms 간격 = 200 * 0.05ms, 20kHz 주기)
     can_report_interval = 200;
@@ -577,14 +577,14 @@ void TransitionToRunning(void) {
  * @details 정지 명령 수신 시 대기 상태로 전환하고 종료 보고 전송
  */
 void TransitionToIdle(void) {
-    extern UNIONFLOAT uiCurrentCommand; // 전류 지령 값
+    extern UNIONFLOAT UI_I_cmd; // 전류 지령 값
     extern Uint16 can_report_interval; // CAN 보고 간격
     
     // 하드웨어 제어 변수 설정
     system_state = STATE_STOP;
     
     // 전류 지령 0으로 설정
-    uiCurrentCommand.f = 0.0f;
+    UI_I_cmd.f = 0.0f;
     
     // 상태 변경
     protocol.state_machine = MACHINE_STATE_IDLE;
