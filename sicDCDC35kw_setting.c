@@ -234,11 +234,11 @@ void gpio_config(void)
     GpioCtrlRegs.GPBCTRL.bit.QUALPRD1 = 0xFF;   // GPIO40-47 qualification
     GpioCtrlRegs.GPBCTRL.bit.QUALPRD2 = 0xFF;   // GPIO48-55 qualification
 
-    GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 2;       // DIP Switch_2 (6 sample qualification)
     GpioCtrlRegs.GPAQSEL1.bit.GPIO11 = 2;       // DIP Switch_1 (6 sample qualification)
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 2;       // DIP Switch_2 (6 sample qualification)
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 2;       // DIP Switch_3 (6 sample qualification)
     GpioCtrlRegs.GPBQSEL1.bit.GPIO41 = 2;       // DIP Switch_4 (6 sample qualification)
     GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;       // Start/Stop Switch (6 sample qualification)
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 2;       // DIP Switch_3 (6 sample qualification)
 
     // Pull-up 설정 (DIP 스위치들은 외부 풀업 사용으로 비활성화)
     GpioCtrlRegs.GPAPUD.bit.GPIO10 = 1;         // DIP Switch_2 pull-up 비활성화

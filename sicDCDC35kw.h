@@ -50,9 +50,6 @@ Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
 #define MODULE_NUM (1)                ///< 모듈 개수
 #define OVER_VOLTAGE (1100)           ///< 과전압 보호 임계값 (V)
 
-#define MON_MAXCNT        (10000.)    ///< 모니터링 카운트 (평균 계산용)
-#define MON_MAXCNT_REV    ((float)((1)/(MON_MAXCNT)))  ///< 평균 계산 최적화용
-
 //*****************************************************************************
 // GPIO Macros and Hardware Control
 //*****************************************************************************
@@ -150,526 +147,356 @@ void modbus_parse(void);
 #ifdef _MAIN_C_
 
 //=============================================================================
-// 1. System Control and Status Variables
+// 1. SYSTEM CONTROL AND STATUS VARIABLES
 //=============================================================================
-eCharge_DisCharge_Mode eChargeMode;  ///< 현재 충전/방전 모드
-Uint32 mainLoopCount = 0;            ///< 메인 루프 카운터 (디버깅용)
-SYSTEM_STATE system_state = STATE_STOP;     ///< 시스템 운전 상태 (Modbus/CAN 통합)
-eConfig_USART_send_period USART_send_period = e50us; ///< USART 전송 주기
-
-//=============================================================================
-// 2. Current Control and Sensing Variables
-//=============================================================================
-
 /**
- * @defgroup Current_Variables 전류 관련 변수
- * @brief 전류 지령, 센싱, 피드백 관련 변수들
+ * @defgroup System_Control_Variables 시스템 제어 및 상태 변수
+ * @brief 시스템 운전 상태, 모드 제어 관련 변수들
  * @{
  */
 
-// Current Commands (전류 지령)
-float32 I_com_set = 0;           ///< 최종 전류 지령값 (DAC 출력용)
-float32 I_com = 0;               ///< 기본 전류 지령 (Modbus에서 수신)
+// System State Control
+eCharge_DisCharge_Mode eChargeMode = Battery_Charg_Discharg_CC_Mode; ///< 충전/방전 모드 (기본: CC 모드)
+SYSTEM_STATE system_state = STATE_STOP;                             ///< 시스템 운전 상태 (정지/운전)
+eConfig_USART_send_period USART_send_period = e50us;                ///< USART 전송 주기 (50us)
 
-// Current Sensing and Feedback  
-float32 I_avg = 0;               ///< 마스터 모듈 평균 출력 전류
-float32 I_fb_sum = 0;            ///< 전류 센서 합계 (모니터링용)
-Uint32 I_ADC_sum = 0;            ///< ADC 합계 (평균 계산용)
-Uint16 I_ADC = 0;                ///< 현재 전류 ADC 값
-Uint16 I_avg_count = 0;          ///< 전류 평균 계산 카운터
-
-// PI Controller Current Variables
-float32 I_cmd_ss_prev = 0;       ///< 이전 정상상태 전류 지령
-float32 I_cmd_ss = 0;            ///< 정상상태 전류 지령
-float32 I_ss, I_ss_prev, I_ss_prev2; ///< 소프트 스타트 관련 변수
-float32 I_cmd_PI;                ///< PI 제어용 중간 전류 지령값
+// Debug and Monitoring
+Uint32 mainLoopCount = 0;                                           ///< 메인 루프 카운터 (디버깅용)
 
 /** @} */
 
 //=============================================================================
-// 3. Voltage Control and Sensing Variables  
+// 2. CURRENT CONTROL VARIABLES
 //=============================================================================
-
 /**
- * @defgroup Voltage_Variables 전압 관련 변수
- * @brief 전압 지령, 센싱, 피드백 관련 변수들
+ * @defgroup Current_Control_Variables 전류 제어 관련 변수
+ * @brief 전류 지령, 센싱, 제어 출력 관련 변수들
  * @{
  */
 
-// Voltage Commands (전압 지령)
-float32 V_com = 0;               ///< 기본 전압 지령
-float32 V_lim_max = 0;           ///< 고전압 지령 (충전 모드용)
-float32 V_lim_min = 0;           ///< 저전압 지령 (방전 모드용)
-float32 Bat_Mean = 0;            ///< 배터리 평균 전압
+// Current Commands and Control Outputs
+float32 I_cmd = 0.0f;                                               ///< 기본 전류 지령 (Modbus에서 수신)
+float32 I_cmd_PI = 0.0f;                                            ///< PI 제어용 중간 전류 지령값
+float32 I_cmd_control_output = 0.0f;                                ///< 최종 전류 지령값 (DAC 출력용)
 
-// Voltage Sensing and Feedback
-float32 V_out = 0;               ///< 출력 전압 (PI 제어용)
-volatile float32 V_out_ADC;      ///< 전압 ADC 원시값
-float32 V_out_fb_sum = 0;        ///< 전압 센서 합계
-float32 V_offset = 0;            ///< 전압 오프셋
-float32 V_scale = 0;             ///< 전압 스케일
+// Current Sensing and ADC
+Uint16 I_out_ADC = 0;                                               ///< 현재 전류 ADC 값 (100kHz)
+Uint32 I_out_ADC_sum = 0;                                           ///< 전류 ADC 합계 (5회 평균용)
+float32 I_out_ADC_avg = 0.0f;                                       ///< 5회 평균된 ADC 전류값 (20kHz)
 
-// Voltage Monitoring Variables
-Uint32 mon_count = 0;            ///< 전압 모니터링 카운터
-float32 V_out_fb_mon = 0.;       ///< 모니터링용 전압 센서 합계
-float32 V_out_avg = 0.;          ///< 전압 평균값
+// Current Feedback and Monitoring
+float32 I_fb_sum = 0.0f;                                            ///< 전류 센서 합계 (장기 평균용)
+float32 I_fb_avg = 0.0f;                                            ///< 전류 피드백 평균 (모니터링용)
+Uint16 I_cal_cnt = 0;                                               ///< 전류 계산 카운터
 
-// PI Controller Voltage Variables
-float32 V_out_error = 0;         ///< 전압 오차
-float32 V_lim_max_error = 0;     ///< 고전압 오차 (충전 모드)
-float32 V_lim_min_error = 0;     ///< 저전압 오차 (방전 모드)
-float32 V_out_error_PI_out = 0;  ///< 전압 오차 PI 출력
-float32 V_lim_max_error_PI_out = 0; ///< 고전압 오차 PI 출력 (충전 모드)
-float32 V_lim_min_error_PI_out = 0; ///< 저전압 오차 PI 출력 (방전 모드)
+// Soft Start Control
+float32 I_ss = 0.0f;                                                ///< 소프트 스타트 전류 제한
+float32 I_ss_prev = 0.0f;                                           ///< 이전 소프트 스타트 값
+float32 I_ss_prev2 = 0.0f;                                          ///< 이전 소프트 스타트 값 2
+float32 I_cmd_ss = 0.0f;                                            ///< 정상상태 전류 지령
+float32 I_cmd_ss_prev = 0.0f;                                       ///< 이전 정상상태 전류 지령
 
-// Reference Values
-Uint16 Vout_Reference;           ///< 전압 기준값 (Modbus에서 수신)
-int16  Iout_Reference;           ///< 전류 기준값 (Modbus에서 수신)
+// DAC Output
+Uint16 I_cmd_DAC = 0;                                               ///< 전류 지령 DAC 값 (0~4095)
 
 /** @} */
 
 //=============================================================================
-// 4. PI Controller Parameters and Outputs
+// 3. VOLTAGE CONTROL VARIABLES
 //=============================================================================
-
 /**
- * @defgroup PI_Controller PI 제어기 관련 변수
- * @brief PI 제어기 파라미터 및 출력 변수들
+ * @defgroup Voltage_Control_Variables 전압 제어 관련 변수
+ * @brief 전압 지령, 센싱, 제어 관련 변수들
  * @{
  */
 
-// PI Parameters
-float32 Kp = 1;                  ///< 비례 게인
-float32 Ki = 3000;               ///< 적분 게인  
-float32 Tsampl = 50E-6;          ///< 샘플링 시간 (50us, 20kHz)
+// Voltage Commands and Limits
+float32 V_max_lim = 0.0f;                                           ///< 고전압 지령 (충전 모드용)
+float32 V_min_lim = 0.0f;                                           ///< 저전압 지령 (방전 모드용)
+float32 Bat_Mean = 0.0f;                                            ///< 배터리 평균 전압
 
-// PI Outputs - Proportional Term
-float32 kP_out = 0;              ///< 일반 비례 출력
-float32 V_lim_max_kP_out = 0;    ///< 고전압 비례 출력
-float32 V_lim_min_kP_out = 0;    ///< 저전압 비례 출력
+// Voltage Sensing and ADC
+volatile float32 V_out_ADC = 0.0f;                                  ///< 전압 ADC 원시값
+float32 V_out = 0.0f;                                               ///< 출력 전압 (PI 제어용)
+float32 V_fb = 0.0f;                                                ///< 전압 피드백 (센싱용)
 
-// PI Outputs - Integral Term
-float32 kI_out_prev = 0;         ///< 이전 적분 출력
-float32 kI_out = 0;              ///< 일반 적분 출력
-float32 V_lim_max_kI_out = 0;    ///< 고전압 적분 출력
-float32 V_lim_min_kI_out = 0;    ///< 저전압 적분 출력
+// Voltage Feedback and Monitoring
+float32 V_fb_sum = 0.0f;                                            ///< 전압 피드백 합계 (장기 평균용)
+Uint32 V_cal_cnt = 0;                                               ///< 전압 계산 카운터
+
+// Voltage Control Errors
+float32 V_max_error = 0.0f;                                         ///< 고전압 오차 (충전 모드)
+float32 V_min_error = 0.0f;                                         ///< 저전압 오차 (방전 모드)
+
+// PI Control Outputs
+float32 V_max_control_output = 0.0f;                                ///< 고전압 PI 출력 (충전 모드)
+float32 V_min_control_output = 0.0f;                                ///< 저전압 PI 출력 (방전 모드)
+
+// Protection Flags
+Uint16 over_voltage_flag = 0;                                       ///< 과전압 보호 플래그
 
 /** @} */
 
 //=============================================================================
-// 4.1 DCL PI Controller Variables (DCL 라이브러리 기반 PI 제어)
+// 4. PI CONTROLLER PARAMETERS AND OUTPUTS
 //=============================================================================
-
 /**
- * @defgroup DCL_Controller DCL PI 제어기 관련 변수
- * @brief TI DCL 라이브러리 기반 최적화된 PI 제어기
+ * @defgroup PI_Controller_Variables PI 제어기 관련 변수
+ * @brief PI 제어기 파라미터, 출력, DCL 컨트롤러 관련 변수들
  * @{
  */
 
-// DCL PI Controllers
-DCL_PI dcl_pi_charge;            ///< DCL 충전용 PI 컨트롤러
-DCL_PI dcl_pi_discharge;         ///< DCL 방전용 PI 컨트롤러
-DCL_CSS dcl_css_common;          ///< DCL 공통 지원 구조체
+// PI Control Parameters
+float32 Kp = 1.0f;                                                  ///< 비례 게인
+float32 Ki = 3000.0f;                                               ///< 적분 게인
+float32 Tsampl = 50E-6f;                                            ///< 샘플링 시간 (50us, 20kHz)
+
+// PI Outputs - Proportional Terms
+float32 V_max_kP_out = 0.0f;                                        ///< 고전압 비례 출력
+float32 V_min_kP_out = 0.0f;                                        ///< 저전압 비례 출력
+
+// PI Outputs - Integral Terms
+float32 kI_out_prev = 0.0f;                                         ///< 이전 적분 출력
+float32 V_max_kI_out = 0.0f;                                        ///< 고전압 적분 출력
+float32 V_min_kI_out = 0.0f;                                        ///< 저전압 적분 출력
+
+// DCL PI Controllers (TI DCL Library)
+DCL_PI dcl_pi_charge;                                               ///< DCL 충전용 PI 컨트롤러
+DCL_PI dcl_pi_discharge;                                            ///< DCL 방전용 PI 컨트롤러
+DCL_CSS dcl_css_common;                                             ///< DCL 공통 지원 구조체
 
 // DCL Control Flags
-Uint16 use_dcl_controller = 1;   ///< DCL 제어기 사용 플래그 (1: DCL 사용, 0: 기존 사용)
+Uint16 use_dcl_controller = 0;                                      ///< DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
 
 /** @} */
 
 //=============================================================================
-// 5. Temperature Sensing and Fan Control
+// 5. TEMPERATURE SENSING AND FAN CONTROL
 //=============================================================================
-
 /**
- * @defgroup Temperature_Control 온도 센싱 및 팬 제어
- * @brief 온도 측정 및 팬 PWM 제어 관련 변수들
+ * @defgroup Temperature_Control_Variables 온도 제어 관련 변수
+ * @brief 온도 센싱 및 팬 PWM 제어 관련 변수들
  * @{
  */
 
-// Temperature Sensing (온도 센싱)
-float32 temp_in = 0;             ///< 실제 온도값 (°C)
-volatile float32 temp_ADC;       ///< 온도 ADC 원시값
-float32 temp_ADC_fb = 0;         ///< 온도 ADC 센서값
-float32 temp_ADC_fb_alt = 0;     ///< 온도 ADC 센서값 1
+// Temperature Sensing
+volatile float32 temp_ADC = 0.0f;                                   ///< 온도 ADC 원시값
+float32 temp_in = 0.0f;                                             ///< 실제 온도값 (°C)
+float32 temp_ADC_fb = 0.0f;                                         ///< 온도 ADC 피드백값
+float32 temp_ADC_fb_alt = 0.0f;                                     ///< 온도 ADC 보조값
 
-// Fan Control
-float32 fan_pwm_duty = 0.15;     ///< 팬 PWM 듀티 사이클 (15~90%)
-float32 fan_pwm_duty_tmp = 0.;   ///< 팬 PWM 듀티 임시 계산값
+// Fan PWM Control
+float32 fan_pwm_duty = 0.15f;                                       ///< 팬 PWM 듀티 사이클 (15~90%)
+float32 fan_pwm_duty_tmp = 0.0f;                                    ///< 팬 PWM 듀티 임시값
 
 /** @} */
 
 //=============================================================================
-// 6. DAC and SPI Control Variables
+// 6. COMMUNICATION VARIABLES
 //=============================================================================
-
 /**
- * @defgroup SPI_DAC SPI 및 DAC 제어
- * @brief SPI 통신 및 DAC 출력 관련 변수들
+ * @defgroup Communication_Variables 통신 관련 변수
+ * @brief Modbus, CAN, RS485 통신 관련 변수들
  * @{
  */
 
-int16 deg_sDacTmp;               ///< DAC 임시 변수
+// Modbus Command Interface
+Uint16 UI_V_cmd = 0;                                                ///< 전압 기준값 (Modbus에서 수신)
+UNIONFLOAT UI_I_cmd;                                                ///< 전류 지령 (Modbus에서 수신)
 
-// SPI Communication
-Uint16 spi_tx_tmp = 0;   ///< SPI 전송용 임시 변수
+// CAN Communication Data
+UNIONFLOAT I_fb_array[10];                                          ///< 마스터, 슬레이브 전류 센서 배열 (인덱스 1~9는 슬레이브, 0은 마스터)
+UNIONFLOAT I_fb_total;                                              ///< 총 전류 피드백 (Modbus 전송용)
+UNIONFLOAT V_fb_avg;                                                ///< 평균 전압 (Modbus 전송용)
+
+// Load Configuration
+UNIONFLOAT load_resistance;                                         ///< 부하 저항값 (CR 모드용)
 
 /** @} */
 
-//=============================================================================  
-// 7. Timing and Control Flags
 //=============================================================================
-
+// 7. TIMING AND CONTROL FLAGS
+//=============================================================================
 /**
- * @defgroup Timing_Control 타이밍 및 제어 플래그
- * @brief 시스템 타이밍 제어를 위한 플래그들
+ * @defgroup Timing_Control_Variables 타이밍 제어 관련 변수
+ * @brief 시스템 타이밍 제어 및 플래그 관련 변수들
  * @{
  */
 
-// High frequency counters and flags
-Uint32 controlPhase = 0;        ///< 100kHz → 20kHz 분주 카운터 (0~4)
-Uint16 _10ms_flag, _1ms_flag, _100us_flag, _50us_flag, _0_1ms_count; ///< 타이밍 플래그들
-Uint32 __100ms_flag, __1000ms_flag; ///< 저주파 플래그들
+// High-Frequency Control Timing
+Uint32 control_phase = 0;                                           ///< 100kHz → 20kHz 분주 카운터 (0~4)
 
-// Setup timers
-Uint32 setup_off_timer = 0, setup_on_timer = 0; ///< 설정 타이머들
-Uint16 dab_ok_fault = 0, dab_ok = 0;            ///< DAB 상태 플래그들
+// System Flags
+Uint16 parse_mb_flag = 0;                                           ///< Modbus 파싱 플래그 (10ms 주기)
+
+// Hardware Status Flags
+Uint16 dab_ok_fault = 0;                                            ///< DAB 폴트 상태
+Uint16 dab_ok = 0;                                                  ///< DAB OK 상태
 
 /** @} */
 
 //=============================================================================
-// 8. Digital I/O and Status Variables  
+// 8. DIGITAL I/O VARIABLES
 //=============================================================================
-
 /**
- * @defgroup Status_Variables 상태 및 디지털 I/O 변수
- * @brief 시스템 상태 및 디지털 입출력 관련 변수들
+ * @defgroup Digital_IO_Variables 디지털 I/O 관련 변수
+ * @brief GPIO 입력, 스위치 상태, 하드웨어 상태 관련 변수들
  * @{
  */
 
-Uint16 dummy;                    ///< 더미 변수
-Uint16 V_out_measured = 0;       ///< 전압 측정값
-Uint16 average_count = 0;        ///< 일반 평균 카운터
-Uint16 over_voltage_flag = 0;    ///< 과전압 플래그
+// GPIO Input Variables (sicDCDC35kw_setting.h에서 정의)
+// extern Uint16 board_id;                                          ///< 보드 ID (DIP 스위치)
+// extern Uint16 power_switch;                                      ///< 전원 스위치 상태
+// extern Uint16 can_tx_cnt;                                        ///< CAN 전송 카운터
+// extern Uint16 can_report_flag;                                   ///< CAN 보고 플래그
+// extern Uint16 can_report_counter;                                ///< CAN 보고 카운터
+// extern Uint16 can_report_interval;                               ///< CAN 보고 간격
 
 /** @} */
 
 //=============================================================================
-// 9. Communication and Monitoring Variables
-//=============================================================================
-
-/**
- * @defgroup Communication 통신 및 모니터링 변수
- * @brief Modbus, CAN 통신 및 모니터링 관련 변수들
- * @{
- */
-
-// Modbus and Communication
-UNIONFLOAT load_resistance, UI_I_cmd;   ///< 부하 저항, UI 전류 지령
-UNIONFLOAT I_fb_array[10];       ///< 슬레이브 전류 센서 배열 (인덱스 1~9 사용)
-UNIONFLOAT I_sensor, I_fb_total, V_fb_avg; ///< 센서 데이터
-
-// Serial Communication
-float32 V_ADC, V_out_fb;         ///< ADC 전압 변수들
-
-/** @} */
-
-//=============================================================================
-// 10. Calculation and Control Variables  
-//=============================================================================
-
-/**
- * @defgroup Calculation 계산 및 제어 변수
- * @brief 각종 계산 및 제어용 임시 변수들
- * @{
- */
-
-// Calculation Variables
-float32 I_cmd_tmp;               ///< 전류 지령 임시 계산 변수
-float32 V_lim_max_tmp, V_lim_min_tmp; ///< 전압 고/저 임시값
-float32 power;                   ///< 전력 계산값
-int16 I_ref_tmp;                 ///< 전류 기준 임시 변수
-
-// Voltage Monitoring Variables (TI style naming)
-Uint32 V_count = 0;              ///< 전압 모니터링 카운터
-float32 V_sum_mon = 0.;          ///< 모니터링용 전압 센서 합계
-float32 V_avg = 0.;              ///< 전압 평균값
-
-/** @} */
-
-//=============================================================================
-// 11. Function Declarations
+// 9. FUNCTION DECLARATIONS
 //=============================================================================
 
 //-----------------------------------------------------------------------------
 // A. Interrupt Service Routines (인터럽트 서비스 루틴)
 //-----------------------------------------------------------------------------
-
 /**
  * @defgroup ISR_Functions 인터럽트 서비스 루틴
  * @brief 시스템 인터럽트 처리 함수들
  * @{
  */
 
-/**
- * @brief ADC 인터럽트 서비스 루틴
- * @details 온도, 전류, 전압 ADC 변환 완료 시 호출
- */
-__interrupt void adc_isr(void);
-
-/**
- * @brief CPU Timer 0 인터럽트 (100kHz)
- * @details 워치독 서비스 및 고속 타이밍 제어
- */
-__interrupt void cpu_timer0_isr(void);
-
-/**
- * @brief CPU Timer 2 인터럽트 (1초)
- * @details 저속 타이밍 제어
- */
-__interrupt void cpu_timer2_isr(void);
-
-/**
- * @brief ePWM1 인터럽트
- * @details 팬 PWM 제어용
- */
-__interrupt void epwm1_isr(void);
-
-/**
- * @brief ePWM3 인터럽트 (100kHz)
- * @details 메인 제어 루프 - PI 제어, 통신, 센싱
- */
-__interrupt void epwm3_isr(void);
-
-/**
- * @brief SPI 인터럽트
- * @details SPI 통신 완료 시 호출
- */
-__interrupt void spi_isr(void);
-
-/**
- * @brief SCI-A 송신 FIFO 인터럽트
- * @details RS485 통신 송신 완료 시 호출
- */
-__interrupt void scia_txFifo_isr(void);
-
-/**
- * @brief CAN 인터럽트
- * @details CAN 메시지 수신 시 호출 (슬레이브 피드백 + Protocol)
- */
-__interrupt void ecan0_isr(void);
-
-/**
- * @brief SCI-B 수신 인터럽트
- * @details Modbus RTU 데이터 수신 시 호출
- */
-__interrupt void scibRxReadyISR(void);
-
-/**
- * @brief SCI-B 송신 인터럽트
- * @details Modbus RTU 데이터 송신 완료 시 호출
- */
-__interrupt void scibTxEmptyISR(void);
-
-/**
- * @brief CPU Timer 1 만료 인터럽트
- * @details Modbus 타이밍 제어용
- */
-__interrupt void cpuTimer1ExpiredISR(void);
+__interrupt void adc_isr(void);                     ///< ADC 변환 완료 인터럽트 (온도/전류/전압)
+__interrupt void cpu_timer0_isr(void);             ///< CPU Timer 0 인터럽트 (100kHz, 워치독)
+__interrupt void cpu_timer2_isr(void);             ///< CPU Timer 2 인터럽트 (저속 타이밍)
+__interrupt void epwm1_isr(void);                  ///< ePWM1 인터럽트 (팬 PWM 제어)
+__interrupt void epwm3_isr(void);                  ///< ePWM3 인터럽트 (100kHz, 메인 제어 루프)
+__interrupt void spi_isr(void);                    ///< SPI 통신 완료 인터럽트
+__interrupt void scia_txFifo_isr(void);            ///< SCI-A 송신 FIFO 인터럽트 (RS485)
+__interrupt void ecan0_isr(void);                  ///< CAN 인터럽트 (슬레이브 + Protocol)
+__interrupt void scibRxReadyISR(void);             ///< SCI-B 수신 인터럽트 (Modbus RTU)
+__interrupt void scibTxEmptyISR(void);             ///< SCI-B 송신 인터럽트 (Modbus RTU)
+__interrupt void cpuTimer1ExpiredISR(void);        ///< CPU Timer 1 인터럽트 (Modbus 타이밍)
 
 /** @} */
 
 //-----------------------------------------------------------------------------
 // B. Control Algorithm Functions (제어 알고리즘 함수)
 //-----------------------------------------------------------------------------
-
 /**
  * @defgroup Control_Functions 제어 알고리즘 함수
  * @brief PI 제어 및 제어 알고리즘 관련 함수들
  * @{
  */
 
-/**
- * @brief 고전압 PI 컨트롤러 (충전 모드용)
- * @details I_com >= 0일 때 사용되는 PI 제어기
- */
-void PIControlHigh(void);
+// Traditional PI Controllers
+void PIControlHigh(void);                          ///< 고전압 PI 컨트롤러 (충전 모드, I_cmd >= 0)
+void PIControlLow(void);                           ///< 저전압 PI 컨트롤러 (방전 모드, I_cmd < 0)
+void PIControlUnified(void);                       ///< 통합 PI 컨트롤러 (충전/방전 자동 선택)
 
-/**
- * @brief 저전압 PI 컨트롤러 (방전 모드용)
- * @details I_com < 0일 때 사용되는 PI 제어기
- */
-void PIControlLow(void);
-
-/**
- * @brief 통합 PI 컨트롤러 (충전/방전 자동 선택)
- * @details 전류 지령에 따라 충전/방전 모드를 자동 선택하는 통합 PI 제어기
- * @note 50% 계산량 절약, bumpless transfer 구현
- */
-void PIControlUnified(void);
-
-/**
- * @brief DCL PI 컨트롤러 초기화
- * @details TI DCL 라이브러리 기반 PI 컨트롤러 초기화
- */
-void InitDCLControllers(void);
-
-/**
- * @brief DCL 기반 PI 제어 함수
- * @details DCL_runPI_C1 어셈블리 함수를 사용한 최적화된 PI 제어
- * @note 약 65% 성능 향상 (40-50 cycles → 12-15 cycles)
- */
-void PIControlDCL(void);
-
-/**
- * @brief DCL 어셈블리 함수 선언
- * @param pi PI 컨트롤러 구조체 포인터
- * @param rk 기준값 (reference)
- * @param yk 피드백값 (feedback)
- * @return PI 제어 출력값
- */
-extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk);
+// DCL-Based PI Controllers (TI DCL Library)
+void InitDCLControllers(void);                     ///< DCL PI 컨트롤러 초기화
+void PIControlDCL(void);                           ///< DCL 기반 PI 제어 (65% 성능 향상)
+extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk); ///< DCL 어셈블리 함수
 
 /** @} */
 
 //-----------------------------------------------------------------------------
 // C. Sensing and Calculation Functions (센싱 및 계산 함수)
 //-----------------------------------------------------------------------------
-
 /**
  * @defgroup Sensing_Functions 센싱 및 계산 함수
  * @brief 센서 데이터 처리 및 계산 관련 함수들
  * @{
  */
 
-/**
- * @brief GPIO 디지털 입력 읽기
- * @details DIP 스위치, 시작/정지 스위치 상태 읽기
- */
-void ReadGpioInputs(void);
-
-/**
- * @brief 전류 평균 계산
- * @details SPI ADC로부터 읽은 전류값의 평균 계산 (10000회 평균)
- */
-void CalcCurrentAverage(void);
-
-/**
- * @brief 전압 평균 계산
- * @details 전압 센서값의 평균 계산 (10000회 평균)
- */
-void CalcVoltageAverage(void);
+void ReadGpioInputs(void);                         ///< GPIO 디지털 입력 읽기 (DIP 스위치, 시작/정지)
+void Calc_I_fb_avg(void);                          ///< 전류 평균 계산 (10000회 평균)
+void Calc_V_fb_avg(void);                          ///< 전압 평균 계산 (10000회 평균)
 
 /** @} */
 
 //-----------------------------------------------------------------------------
 // D. System Control Functions (시스템 제어 함수)
 //-----------------------------------------------------------------------------
-
 /**
- * @defgroup System_Control 시스템 제어 함수
+ * @defgroup System_Control_Functions 시스템 제어 함수
  * @brief 시스템 제어 관련 함수들
  * @{
  */
 
-/**
- * @brief 팬 PWM 제어
- * @details 온도에 따른 팬 PWM 듀티 사이클 제어 (15~90%)
- */
-void ControlFanPwm(void);
+void ControlFanPwm(void);                          ///< 팬 PWM 제어 (온도 비례, 15~90%)
 
 /** @} */
 
 //-----------------------------------------------------------------------------
 // E. Communication Functions (통신 함수)
 //-----------------------------------------------------------------------------
-
 /**
  * @defgroup Communication_Functions 통신 함수
  * @brief 통신 프로토콜 처리 관련 함수들
  * @{
  */
 
-/**
- * @brief Modbus 데이터 파싱
- * @details 제어 컴퓨터로부터 수신한 Modbus 데이터 파싱 및 처리
- * @note 전류/전압 지령, 운전 모드 설정 등 처리
- */
-void ParseModbusData(void);
-
-/**
- * @brief 문자열 전송 (SCI-A)
- * @param buff 전송할 데이터 버퍼
- * @param Length 전송할 데이터 길이
- * @details RS485를 통한 슬레이브 전류 지령 브로드캐스팅
- */
-void stra_xmit(Uint8 *buff, Uint16 Length);
+void ParseModbusData(void);                        ///< Modbus 데이터 파싱 (전류/전압 지령, 모드 설정)
+void stra_xmit(Uint8 *buff, Uint16 Length);        ///< RS485 문자열 전송 (슬레이브 전류 지령)
+void modbus_parse(void);                           ///< Modbus 파싱 (외부 함수)
 
 /** @} */
 
 //-----------------------------------------------------------------------------
 // F. System Initialization Functions (시스템 초기화 함수)
 //-----------------------------------------------------------------------------
-
 /**
  * @defgroup Init_Functions 시스템 초기화 함수
  * @brief 시스템 초기화 관련 함수들
  * @{
  */
 
-/**
- * @brief ePWM1 초기화
- * @details 팬 PWM 제어용 ePWM1 초기화
- */
-void InitEPwm1(void);
-
-/**
- * @brief ePWM3 초기화
- * @details 메인 제어 타이밍용 ePWM3 초기화 (100kHz)
- */
-void InitEPwm3(void);
-
-/**
- * @brief SPI 초기화
- * @details ADC/DAC 통신용 SPI 초기화
- */
-void SpiInit(void);
-
-/**
- * @brief CAN 설정
- * @details CAN 통신 설정 (슬레이브 피드백용)
- */
-void eCanaConfig(void);
+void InitEPwm1(void);                              ///< ePWM1 초기화 (팬 PWM, 10kHz)
+void InitEPwm3(void);                              ///< ePWM3 초기화 (메인 제어 타이밍, 100kHz)
+void SpiInit(void);                                ///< SPI 초기화 (ADC/DAC 통신, 11.25MHz)
+void eCanaConfig(void);                            ///< CAN 설정 (슬레이브 피드백, 500kbps)
 
 /** @} */
 
 #else // ifndef _MAIN_C_
 
 //=============================================================================
-// External Variable Declarations
+// 10. EXTERNAL VARIABLE DECLARATIONS
 //=============================================================================
-extern eCharge_DisCharge_Mode eChargeMode;
-extern Uint16 Vout_Reference;
-extern int16  Iout_Reference;
+/**
+ * @brief 다른 파일에서 sicDCDC35kw.h를 include할 때 사용하는 외부 변수 선언
+ * @details 컴파일 시 중복 선언을 방지하기 위해 extern으로 선언
+ */
 
-extern float32 temp_in;
-extern float32 V_ADC;
-extern float32 V_out, I_avg;          // Output voltage and current average
-extern SYSTEM_STATE system_state;              // System operation state (unified)
+//-----------------------------------------------------------------------------
+// System Control Variables
+//-----------------------------------------------------------------------------
+extern eCharge_DisCharge_Mode eChargeMode;         ///< 운전 모드
+extern SYSTEM_STATE system_state;                  ///< 시스템 운전 상태
+extern eConfig_USART_send_period USART_send_period; ///< USART 전송 주기
 
-extern Uint32 controlPhase, __100ms_flag, __1000ms_flag;
-extern float Power;
-extern int16 iref_tmp;
-extern eConfig_USART_send_period USART_send_period;
+//-----------------------------------------------------------------------------
+// Sensing Data Variables
+//-----------------------------------------------------------------------------
+extern float32 temp_in;                            ///< 온도 센서값 (°C)
+extern float32 V_out;                              ///< 출력 전압 (V)
+extern Uint32 V_cal_cnt;                           ///< 전압 계산 카운터
 
-// Additional External Declarations
-extern float32 I_cmd_PI;                              // Current command intermediate value
-extern Uint32 V_count;                  // Voltage monitoring counter
-extern float32 V_avg;                          // Voltage mean value
+//-----------------------------------------------------------------------------
+// Control Variables
+//-----------------------------------------------------------------------------
+extern float32 I_cmd_PI;                           ///< PI 제어용 전류 지령값 (A)
 
-// DCL Controller External Declarations
-extern DCL_PI dcl_pi_charge, dcl_pi_discharge;     // DCL PI 컨트롤러들
-extern DCL_CSS dcl_css_common;                     // DCL 공통 지원 구조체
-extern Uint16 use_dcl_controller;                  // DCL 제어기 사용 플래그
+//-----------------------------------------------------------------------------
+// DCL Controller Variables
+//-----------------------------------------------------------------------------
+extern DCL_PI dcl_pi_charge;                       ///< DCL 충전용 PI 컨트롤러
+extern DCL_PI dcl_pi_discharge;                    ///< DCL 방전용 PI 컨트롤러
+extern DCL_CSS dcl_css_common;                     ///< DCL 공통 지원 구조체
+extern Uint16 use_dcl_controller;                  ///< DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
 
 #endif   //_MAIN_C_
 

@@ -116,12 +116,10 @@ Uint16 cpu_timer0_cnt = 0, cpu_timer1_cnt = 0, cpu_timer2_cnt = 0;
 Uint16 spi_interrupt_cnt = 0;
 Uint32 epwm3_isr_cnt = 0;
 
-//PI
-float32 rx_adc_data_buf_ave = 0.0f;
+// ADC 및 기본 설정
+float32 V_ref = 5.0f;
 
-float v_ref = 5.;
-
-Uint16 tx_count = 0, count_num = 100;
+Uint16 can_tx_cnt = 0;
 
 //*****************************************************************************
 // DAC Reference Voltage Configuration
@@ -155,7 +153,7 @@ Uint16 timer_10ms = 0;
 float32 V_out_delta = 0.;
 float32 V_out_monitor = 0.;
 
-Uint16 hw_fault = 0, GPIO_in = 0, GPIO_in_1 = 0;
+Uint16 hw_fault = 0, gpio_dab_fault = 0, gpio_dab_fault_prev = 0;
 
 
 /**
@@ -199,20 +197,6 @@ void main(void) {
     // 2. GPIO 초기화
     //=========================================================================
     gpio_config();
-
-    
-    // GPIO 하드웨어 Qualification 설정 (글리치 제거)
-    EALLOW;
-    // DIP 스위치용: 6 SYSCLKOUT 사이클로 qualification (90MHz/6 = 15MHz 이하 변화만 통과)
-    GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 3; // DIP Switch 2 - 6 cycles qualification
-    GpioCtrlRegs.GPAQSEL1.bit.GPIO11 = 3; // DIP Switch 1 - 6 cycles qualification  
-    GpioCtrlRegs.GPBQSEL1.bit.GPIO41 = 3; // DIP Switch 4 - 6 cycles qualification
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 3; // DIP Switch 3 - 6 cycles qualification
-    
-    // Start/Stop 스위치용: 3 SYSCLKOUT 사이클로 qualification (더 빠른 응답)
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2; // Start/Stop Switch - 3 cycles qualification
-    EDIS;
-    
     ReadGpioInputs(); // Board ID 읽기 및 초기 CAN ID 설정
 
     // PWM 및 SPI GPIO 설정
@@ -331,7 +315,7 @@ void main(void) {
     DAC1_CS();
     SpiaRegs.SPITXBUF = 0xD002; // DAC 제어 레지스터 (2.048V 내부 기준전압)
     while (!SpiaRegs.SPISTS.bit.INT_FLAG);
-    deg_sDacTmp = SpiaRegs.SPIRXBUF;
+    (void)SpiaRegs.SPIRXBUF; // SPI 통신 완료를 위한 더미 읽기
 
     //=========================================================================
     // 12. Modbus 프로토콜 스택 초기화
@@ -366,7 +350,7 @@ void main(void) {
     //=========================================================================
     ServiceDog(); // 워치독 리셋
     
-    // 전류 센서 배열 초기화 (인덱스 0은 사용 안함)
+    // 전류 센서 배열 초기화
     for (i = 0; i < 10; i++) {
         I_fb_array[i].f = 0.0f;
     }
@@ -378,7 +362,7 @@ void main(void) {
     EINT; // 전역 인터럽트 활성화
     ERTM; // 실시간 디버그 인터럽트 활성화
 
-    spi_tx_tmp = 2000; // 초기 전류 지령값
+    I_cmd_DAC = 2000; // 초기 전류 지령값
 
     //=========================================================================
     // 15. 메인 루프
@@ -407,9 +391,7 @@ void main(void) {
 
         // CAN 송수신 처리 (1kHz)
         if(can_tx_flag == 1) {
-            // C89 변수 선언 (i는 메인 함수 시작에서 이미 선언됨)
             Uint32 rmp_status;
-            
             can_tx_flag = 0;
             
             // 운전 상태에 따른 CAN 메시지 설정
@@ -421,7 +403,7 @@ void main(void) {
             // CAN 메일박스 상태 읽기 (성능 최적화)
             rmp_status = ECanaRegs.CANRMP.all & 0x000003FE; // MBOX1~9
             
-            // 슬레이브 모듈별 전류값 수신 처리 (배열 인덱스 직접 사용)
+            // 슬레이브 모듈별 전류값 수신 처리 (배열에 직접 저장)
             for(i = 1; i <= 9; i++) {
                 if (rmp_status & (1 << i)) {
                     // CAN 데이터 수신됨 (배열에 직접 저장)
@@ -447,13 +429,10 @@ void main(void) {
             }
         }
 
-        // Modbus 데이터 파싱 (20kHz -> 100Hz)
-        if(_50us_flag) {
-            _50us_flag = 0;
-            if(_0_1ms_count++ >= 200) { // 10ms 주기
-                _0_1ms_count = 0;
-                ParseModbusData();
-            }
+        // Modbus 데이터 파싱 (10ms 주기)
+        if(parse_mb_flag) {
+            parse_mb_flag = 0;
+            ParseModbusData();
         }
 
         // 워치독 서비스
@@ -571,9 +550,9 @@ __interrupt void epwm3_isr(void) { // 100KHz
     //=========================================================================
     // 1. CAN 전송 타이밍 관리 (1kHz)
     //=========================================================================
-    if(tx_count++ >= count_num) // 1ms 마다 CAN 전송
+    if(can_tx_cnt++ >= 100) // 1ms 마다 CAN 전송
     {
-        tx_count = 0;
+        can_tx_cnt = 0;
         can_tx_flag = 1; // 메인 루프에서 처리
     }
 
@@ -581,14 +560,13 @@ __interrupt void epwm3_isr(void) { // 100KHz
     // 2. SPI ADC 데이터 처리
     //=========================================================================
     DAC1_DS();                          // DAC1_CS 비활성화
-    I_ADC = SpiaRegs.SPIRXBUF;          // ADC 데이터 읽기
+    I_out_ADC = SpiaRegs.SPIRXBUF;      // ADC 데이터 읽기
 
     ADC1_CS();                          // ADC1_CS 활성화 (컨버전 시작)
     DAC1_CS();                          // DAC1_CS 활성화
 
     // ADC 데이터 누적 (평균 계산용)
-    I_ADC_sum += I_ADC;
-    if(I_ADC_sum < 1) I_ADC_sum = 1;
+    I_out_ADC_sum += I_out_ADC;
 
     //=========================================================================
     // 3. 100kHz -> 20kHz 분주 제어 알고리즘
@@ -603,21 +581,20 @@ __interrupt void epwm3_isr(void) { // 100KHz
      * 
      * 총 처리 시간: 기존과 동일, case 1에서만 최적화 테스트
      */
-    switch(controlPhase)
+    switch(control_phase)
     {
         //---------------------------------------------------------------------
         // Case 0: 전압 센싱 (20kHz)
         //---------------------------------------------------------------------
         case 0:
             // ADC 평균값 계산 (5회 평균)
-            rx_adc_data_buf_ave = (float32)(I_ADC_sum * 0.2f);
-            I_ADC_sum = 0;
+            I_fb_array[0].f = I_out_ADC_avg = (float32)(I_out_ADC_sum * 0.2f);
+            I_out_ADC_sum = 0;
             
             // 전압 센싱 및 스케일링
-            V_ADC = v_ref * (float)rx_adc_data_buf_ave * 0.0000152f - 0.1945f;
-            V_out_fb = V_out = V_ADC * 250.0f * 1.04047f; // 보정계수 적용 및 제어기용 전압값 설정
+            V_fb = V_out = (V_ref * (float32)V_out_ADC * 0.0000152f - 0.1945f) * 250.0f * 1.04047f; // 보정계수 적용 및 제어기용 전압값 설정
             
-            controlPhase++;
+            control_phase++;
             break;
 
         //---------------------------------------------------------------------  
@@ -631,7 +608,7 @@ __interrupt void epwm3_isr(void) { // 100KHz
                 PIControlUnified();    // 기존 PI 제어 (호환성용)
             }
             
-            controlPhase++;
+            control_phase++;
             break;
 
         //---------------------------------------------------------------------
@@ -639,14 +616,14 @@ __interrupt void epwm3_isr(void) { // 100KHz
         //---------------------------------------------------------------------
         case 2:
             // 전류 지령 제한 처리
-            if      (I_com >  I_ss) I_cmd_PI = I_ss;
-            else if (I_com < -I_ss) I_cmd_PI = -I_ss;
-            else                    I_cmd_PI = I_com;
+            if      (I_cmd >  I_ss) I_cmd_PI = I_ss;
+            else if (I_cmd < -I_ss) I_cmd_PI = -I_ss;
+            else                    I_cmd_PI = I_cmd;
 
             // PI 출력 제한 적용
-            if      (I_cmd_PI > V_lim_max_error_PI_out) I_com_set = V_lim_max_error_PI_out;
-            else if (I_cmd_PI < V_lim_min_error_PI_out) I_com_set = V_lim_min_error_PI_out;
-            else                                        I_com_set = I_cmd_PI;
+            if      (I_cmd_PI > V_max_control_output) I_cmd_control_output = V_max_control_output;
+            else if (I_cmd_PI < V_min_control_output) I_cmd_control_output = V_min_control_output;
+            else                                      I_cmd_control_output = I_cmd_PI;
 
             // 소프트 스타트 처리
             I_ss += I_MAX * 0.00005f;
@@ -668,13 +645,13 @@ __interrupt void epwm3_isr(void) { // 100KHz
             }
 
             // DAC 출력값 계산 및 제한
-            spi_tx_tmp = (I_com_set * 25.0f + 2000.0f) * 1.0005f;
-            if (spi_tx_tmp > 4095) spi_tx_tmp = 4095; // DAC 상한 제한
+            I_cmd_DAC = (I_cmd_control_output * 25.0f + 2000.0f) * 1.0005f;
+            if (I_cmd_DAC > 4095) I_cmd_DAC = 4095; // DAC 상한 제한
             
 
             // RS485 통신 데이터 준비 및 전송
-            gSciTxBuf[1] = (UCHAR)(spi_tx_tmp & 0x00FF);
-            gSciTxBuf[2] = (UCHAR)((spi_tx_tmp >> 8) & 0xFF);
+            gSciTxBuf[1] = (UCHAR)(I_cmd_DAC & 0x00FF);
+            gSciTxBuf[2] = (UCHAR)((I_cmd_DAC >> 8) & 0xFF);
 
             for (i = 0; i < 4; i++) {
                 SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF; // 모든 슬레이브로 전류 지령 전송
@@ -686,13 +663,13 @@ __interrupt void epwm3_isr(void) { // 100KHz
             // 운전 조건 확인 (하드웨어 폴트, 과전압, 스위치 입력)
             if (hw_fault == 0 && over_voltage_flag == 0 && power_switch == 1) {
                 system_state = STATE_RUNNING;
+                GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
+            } else {
+                system_state = STATE_STOP;
+                GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
             }
 
-            // Buck 인에이블 제어
-            if(system_state == STATE_RUNNING) GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
-            else                              GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
-
-            controlPhase++;
+            control_phase++;
             break;
 
         //---------------------------------------------------------------------
@@ -705,7 +682,7 @@ __interrupt void epwm3_isr(void) { // 100KHz
             temp_in = (float32)((temp_ADC_fb_alt * 20.4f) + 1.4f);  // 온도 변환
 
             // 전압 평균값 계산
-            CalcVoltageAverage();
+            Calc_V_fb_avg();
             
             // CAN 보고 타이밍 관리 (0.05ms 단위로 카운트)
             if(can_report_counter++ >= can_report_interval) {
@@ -713,53 +690,52 @@ __interrupt void epwm3_isr(void) { // 100KHz
                 can_report_flag = 1; // 메인 루프에서 처리
             }
             
-            controlPhase++;
+            control_phase++;
             break;
 
         //---------------------------------------------------------------------
         // Case 4: 평균 계산 및 팬 제어 (20kHz)
         //---------------------------------------------------------------------
         case 4:
-            _50us_flag = 1; // 20kHz 플래그 설정
-
-            // 10ms 타이머 (디지털 입력 처리용)
+            // 10ms 타이머 (디지털 입력 및 Modbus 파싱용)
             if(timer_10ms++ >= 200) { // 200 * 0.05ms = 10ms
                 timer_10ms = 0;
+                parse_mb_flag = 1; // Modbus 파싱 플래그 설정
                 ReadGpioInputs(); // DIP 스위치 및 스위치 입력 처리
             }
 
             // 전류 평균 계산 및 팬 PWM 제어
-            CalcCurrentAverage();
+            Calc_I_fb_avg();
             ControlFanPwm();
             
-            controlPhase = 0; // 카운터 리셋
+            control_phase = 0; // 카운터 리셋
             break;
 
         //---------------------------------------------------------------------
         // Default: 에러 방지
         //---------------------------------------------------------------------
         default:
-            controlPhase = 0; // 안전을 위한 리셋
+            control_phase = 0; // 안전을 위한 리셋
             break;
     }
 
     // 카운터 범위 보호
-    if (controlPhase > 4) controlPhase = 0;
+    if (control_phase > 4) control_phase = 0;
 
     //=========================================================================
     // 4. 하드웨어 폴트 감지 (GPIO 기반)
     //=========================================================================
-    GPIO_in_1 = GPIO_in;
-    GPIO_in = !GpioDataRegs.GPBDAT.bit.GPIO39; // DAB_OK 신호 반전
+    gpio_dab_fault_prev = gpio_dab_fault;
+    gpio_dab_fault = !GpioDataRegs.GPBDAT.bit.GPIO39; // DAB_OK 신호 반전
 
-    if      (GPIO_in == 1 && GPIO_in_1 == 1) hw_fault = 1; // 연속 폴트 감지
-            else if (power_switch == 0)      hw_fault = 0; // 스위치 OFF시 폴트 해제
+        if (gpio_dab_fault == 1 && gpio_dab_fault_prev == 1) hw_fault = 1; // 연속 폴트 감지
+        else if                          (power_switch == 0) hw_fault = 0; // 스위치 OFF시 폴트 해제
 
     //=========================================================================
     // 5. DAC 출력 및 SPI 정리
     //=========================================================================
     // DAC1 A채널에 전류 지령 출력 (12비트, 0~4095)
-    SpiaRegs.SPITXBUF = 0xC000 | (spi_tx_tmp & 0xFFF);
+    SpiaRegs.SPITXBUF = 0xC000 | (I_cmd_DAC & 0xFFF);
 
     ADC1_DS(); // ADC1_CS 비활성화
 
@@ -772,16 +748,14 @@ __interrupt void epwm3_isr(void) { // 100KHz
 
 __interrupt void adc_isr(void) {
     EALLOW;
-    //SysCtrlRegs.WDKEY = 0x0055;
-    SysCtrlRegs.WDKEY = 0x00AA; // Feed Dog with one Key, the other in Main
-                                // Dog runs with the highest rate of OSC/512/2^8 = 686 Hz
+    SysCtrlRegs.WDKEY = 0x00AA;
     EDIS;
     
     // ADC conversions - SOC0 시작
     AdcRegs.ADCSOCFRC1.all = 0x07; // SOC0, SOC1, SOC2
 
     temp_ADC = AdcResult.ADCRESULT0;    // 온도 ADC 결과
-    I_ADC = AdcResult.ADCRESULT1;       // 전류 ADC 결과
+    I_out_ADC = AdcResult.ADCRESULT1;   // 전류 ADC 결과
     V_out_ADC = AdcResult.ADCRESULT2;   // 전압 ADC 결과
 
     AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1;     // Clear ADCINT1 flag to reinitialize for next SOC
@@ -792,69 +766,69 @@ __interrupt void adc_isr(void) {
 /**
  * @brief 고전압 PI 컨트롤러 (충전 모드용)
  * 
- * @details 충전 모드(I_com >= 0)에서 사용되는 PI 제어기
- * - 고전압 지령(V_lim_max)과 실제 전압(V_out)의 차이를 PI 제어로 보상
+ * @details 충전 모드(I_cmd >= 0)에서 사용되는 PI 제어기
+ * - 고전압 지령(V_max_lim)과 실제 전압(V_out)의 차이를 PI 제어로 보상
  * - 출력은 양의 전류 지령으로 제한됨 (충전 방향)
  * 
  * @section control_algorithm 제어 알고리즘
- * - **비례항**: Kp × (V_lim_max - V_out)
- * - **적분항**: Ki × Tsampl × ∑(V_lim_max - V_out)
+ * - **비례항**: Kp × (V_max_lim - V_out)
+ * - **적분항**: Ki × Tsampl × ∑(V_max_lim - V_out)
  * - **출력 제한**: -2A ~ I_cmd_PI (전류 지령 상한)
  * - **Anti-windup**: 적분항 포화 방지
  * 
  * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
  */
 void PIControlHigh(void) {
-    V_lim_max_error = V_lim_max - V_out;                     // 고전압 에러 계산
-    V_lim_max_kP_out = Kp * V_lim_max_error;                  // P term (비례 제어)
+    V_max_error = V_max_lim - V_out;                     // 고전압 에러 계산
+    V_max_kP_out = Kp * V_max_error;                     // P term (비례 제어)
 
-    kI_out_prev = Ki * Tsampl * V_lim_max_error;         // I term (적분 제어) Tsampl=50E-6 (50us)
-    V_lim_max_kI_out = V_lim_max_kI_out + kI_out_prev;
+    kI_out_prev = Ki * Tsampl * V_max_error;             // I term (적분 제어) Tsampl=50E-6 (50us)
+    V_max_kI_out = V_max_kI_out + kI_out_prev;
 
     // 적분 출력 제한 (Anti-windup)
-    if      (V_lim_max_kI_out >  I_cmd_PI) V_lim_max_kI_out = I_cmd_PI; // +
-    else if (V_lim_max_kI_out <        -2) V_lim_max_kI_out = -2;
+    if      (V_max_kI_out > I_cmd_PI) V_max_kI_out = I_cmd_PI;
+    else if (V_max_kI_out <       -2) V_max_kI_out = -2;
 
     // PI 출력 계산
-    V_lim_max_error_PI_out = V_lim_max_kP_out + V_lim_max_kI_out;
+    V_max_control_output = V_max_kP_out + V_max_kI_out;
 
     // PI 출력 제한
-    if      (V_lim_max_error_PI_out >  I_cmd_PI) V_lim_max_error_PI_out = I_cmd_PI; // 80 * detect_module_num
-    else if (V_lim_max_error_PI_out <        -2) V_lim_max_error_PI_out =  -2;
+    if      (V_max_control_output > I_cmd_PI) V_max_control_output = I_cmd_PI;
+    else if (V_max_control_output <       -2) V_max_control_output = -2;
 }
 
 /**
  * @brief 저전압 PI 컨트롤러 (방전 모드용)
  * 
- * @details 방전 모드(I_com < 0)에서 사용되는 PI 제어기
- * - 저전압 지령(V_lim_min)과 실제 전압(V_out)의 차이를 PI 제어로 보상
+ * @details 방전 모드(I_cmd < 0)에서 사용되는 PI 제어기
+ * - 저전압 지령(V_min_lim)과 실제 전압(V_out)의 차이를 PI 제어로 보상
  * - 출력은 음의 전류 지령으로 제한됨 (방전 방향)
  * 
  * @section control_algorithm 제어 알고리즘
- * - **비례항**: Kp × (V_lim_min - V_out)
- * - **적분항**: Ki × Tsampl × ∑(V_lim_min - V_out)
+ * - **비례항**: Kp × (V_min_lim - V_out)
+ * - **적분항**: Ki × Tsampl × ∑(V_min_lim - V_out)
  * - **출력 제한**: I_cmd_PI (전류 지령 하한) ~ 2A
  * - **Anti-windup**: 적분항 포화 방지
  * 
  * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
  */
 void PIControlLow(void) {
-    V_lim_min_error = V_lim_min - V_out;                     // 저전압 에러 계산
-    V_lim_min_kP_out = Kp * V_lim_min_error;                  // P term (비례 제어)
+    V_min_error = V_min_lim - V_out;                     // 저전압 에러 계산
+    V_min_kP_out = Kp * V_min_error;                     // P term (비례 제어)
 
-    kI_out_prev = Ki * Tsampl * V_lim_min_error;         // I term (적분 제어) Tsampl=50E-6 (50us)
-    V_lim_min_kI_out = V_lim_min_kI_out + kI_out_prev;
+    kI_out_prev = Ki * Tsampl * V_min_error;             // I term (적분 제어) Tsampl=50E-6 (50us)
+    V_min_kI_out = V_min_kI_out + kI_out_prev;
 
     // 적분 출력 제한 (Anti-windup)
-    if      (V_lim_min_kI_out >       2) V_lim_min_kI_out = 2;
-    else if (V_lim_min_kI_out < I_cmd_PI) V_lim_min_kI_out = I_cmd_PI;
+    if      (V_min_kI_out >        2) V_min_kI_out = 2;
+    else if (V_min_kI_out < I_cmd_PI) V_min_kI_out = I_cmd_PI;
 
     // PI 출력 계산
-    V_lim_min_error_PI_out = V_lim_min_kP_out + V_lim_min_kI_out;
+    V_min_control_output = V_min_kP_out + V_min_kI_out;
 
     // PI 출력 제한
-    if      (V_lim_min_error_PI_out >       2) V_lim_min_error_PI_out = 2;
-    else if (V_lim_min_error_PI_out < I_cmd_PI) V_lim_min_error_PI_out = I_cmd_PI;
+    if      (V_min_control_output >        2) V_min_control_output = 2;
+    else if (V_min_control_output < I_cmd_PI) V_min_control_output = I_cmd_PI;
 }
 
 /**
@@ -869,65 +843,65 @@ void PIControlUnified(void) {
     static float32 ki_accumulator_charge = 0;     // 충전용 적분기 상태
     static float32 ki_accumulator_discharge = 0;  // 방전용 적분기 상태
     
-    if (I_com >= 0) {
+    if (I_cmd >= 0) {
         // =====================================================================
-        // 충전 모드 (I_com >= 0): 기존 PIControlHigh 로직
+        // 충전 모드 (I_cmd >= 0): 기존 PIControlHigh 로직
         // =====================================================================
-        voltage_cmd = V_lim_max;        // 고전압 지령
+        voltage_cmd = V_max_lim;        // 고전압 지령
         upper_limit = I_cmd_PI;         // 상한: 양의 전류 제한
         lower_limit = -2;               // 하한: 최소 음의 값
         
-        // 기존 Voh_ 변수들 업데이트 (호환성 유지)
-        V_lim_max_error = error = voltage_cmd - V_out;
-        V_lim_max_kP_out = kp_out = Kp * error;
+        // 기존 V_max_ 변수들 업데이트 (호환성 유지)
+        V_max_error = error = voltage_cmd - V_out;
+        V_max_kP_out = kp_out = Kp * error;
         
         kI_out_prev = Ki * Tsampl * error;
         ki_accumulator_charge += kI_out_prev;
-        V_lim_max_kI_out = ki_accumulator_charge;
+        V_max_kI_out = ki_accumulator_charge;
         
         // 적분 출력 제한 (Anti-windup)
         if      (ki_accumulator_charge > upper_limit) ki_accumulator_charge = upper_limit;
         else if (ki_accumulator_charge < lower_limit) ki_accumulator_charge = lower_limit;
-        V_lim_max_kI_out = ki_accumulator_charge;
+        V_max_kI_out = ki_accumulator_charge;
         
         // PI 출력 계산 및 제한
-        V_lim_max_error_PI_out = pi_out = kp_out + ki_accumulator_charge;
-        if      (pi_out > upper_limit) V_lim_max_error_PI_out = upper_limit;
-        else if (pi_out < lower_limit) V_lim_max_error_PI_out = lower_limit;
+        V_max_control_output = pi_out = kp_out + ki_accumulator_charge;
+        if      (pi_out > upper_limit) V_max_control_output = upper_limit;
+        else if (pi_out < lower_limit) V_max_control_output = lower_limit;
         
         // 방전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        ki_accumulator_discharge = V_lim_max_error_PI_out - kp_out;
+        ki_accumulator_discharge = V_max_control_output - kp_out;
         if      (ki_accumulator_discharge > 2)       ki_accumulator_discharge = 2;
         else if (ki_accumulator_discharge < I_cmd_PI) ki_accumulator_discharge = I_cmd_PI;
         
     } else {
         // =====================================================================
-        // 방전 모드 (I_com < 0): 기존 PIControlLow 로직
+        // 방전 모드 (I_cmd < 0): 기존 PIControlLow 로직
         // =====================================================================
-        voltage_cmd = V_lim_min;          // 저전압 지령  
+        voltage_cmd = V_min_lim;        // 저전압 지령  
         upper_limit = 2;                // 상한: 최대 양의 값
-        lower_limit = I_cmd_PI;          // 하한: 음의 전류 제한
+        lower_limit = I_cmd_PI;         // 하한: 음의 전류 제한
         
-        // 기존 Vol_ 변수들 업데이트 (호환성 유지)
-        V_lim_min_error = error = voltage_cmd - V_out;
-        V_lim_min_kP_out = kp_out = Kp * error;
+        // 기존 V_min_ 변수들 업데이트 (호환성 유지)
+        V_min_error = error = voltage_cmd - V_out;
+        V_min_kP_out = kp_out = Kp * error;
         
         kI_out_prev = Ki * Tsampl * error;
         ki_accumulator_discharge += kI_out_prev;
-        V_lim_min_kI_out = ki_accumulator_discharge;
+        V_min_kI_out = ki_accumulator_discharge;
         
         // 적분 출력 제한 (Anti-windup)
         if      (ki_accumulator_discharge > upper_limit) ki_accumulator_discharge = upper_limit;
         else if (ki_accumulator_discharge < lower_limit) ki_accumulator_discharge = lower_limit;
-        V_lim_min_kI_out = ki_accumulator_discharge;
+        V_min_kI_out = ki_accumulator_discharge;
         
         // PI 출력 계산 및 제한
-        V_lim_min_error_PI_out = pi_out = kp_out + ki_accumulator_discharge;
-        if      (pi_out > upper_limit) V_lim_min_error_PI_out = upper_limit;
-        else if (pi_out < lower_limit) V_lim_min_error_PI_out = lower_limit;
+        V_min_control_output = pi_out = kp_out + ki_accumulator_discharge;
+        if      (pi_out > upper_limit) V_min_control_output = upper_limit;
+        else if (pi_out < lower_limit) V_min_control_output = lower_limit;
         
         // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        ki_accumulator_charge = V_lim_min_error_PI_out - kp_out;
+        ki_accumulator_charge = V_min_control_output - kp_out;
         if      (ki_accumulator_charge > I_cmd_PI) ki_accumulator_charge = I_cmd_PI;
         else if (ki_accumulator_charge < -2)       ki_accumulator_charge = -2;
     }
@@ -958,7 +932,7 @@ void InitDCLControllers(void) {
     //=========================================================================
     // 충전용 PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_charge.Kp = Kp;              // 비례 게인
+    dcl_pi_charge.Kp = Kp;               // 비례 게인
     dcl_pi_charge.Ki = Ki * Tsampl;      // 적분 게인 (이산화)
     dcl_pi_charge.Umax = I_MAX;          // 초기 상한값 (동적으로 변경됨)
     dcl_pi_charge.Umin = -2.0f;          // 하한값
@@ -968,7 +942,7 @@ void InitDCLControllers(void) {
     //=========================================================================
     // 방전용 PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_discharge.Kp = Kp;           // 비례 게인
+    dcl_pi_discharge.Kp = Kp;            // 비례 게인
     dcl_pi_discharge.Ki = Ki * Tsampl;   // 적분 게인 (이산화)
     dcl_pi_discharge.Umax = 2.0f;        // 상한값
     dcl_pi_discharge.Umin = -I_MAX;      // 초기 하한값 (동적으로 변경됨)
@@ -985,49 +959,49 @@ void InitDCLControllers(void) {
 void PIControlDCL(void) {
     float32_t pi_output;
     
-    if (I_com >= 0) {
+    if (I_cmd >= 0) {
         // =====================================================================
-        // 충전 모드 (I_com >= 0): 고전압 제어
+        // 충전 모드 (I_cmd >= 0): 고전압 제어
         // =====================================================================
         
         // 동적 상한값 업데이트 (전류 제한에 따라)
         dcl_pi_charge.Umax = I_cmd_PI;
         
         // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
-        pi_output = DCL_runPI_C1(&dcl_pi_charge, V_lim_max, V_out);
+        pi_output = DCL_runPI_C1(&dcl_pi_charge, V_max_lim, V_out);
         
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
-        V_lim_max_error = V_lim_max - V_out;                           // 에러 계산
-        V_lim_max_kP_out = dcl_pi_charge.Kp * V_lim_max_error;          // 비례항
-        V_lim_max_kI_out = dcl_pi_charge.i10;                   // 적분항 상태
-        V_lim_max_error_PI_out = pi_output;                       // PI 출력
+        V_max_error = V_max_lim - V_out;                          // 에러 계산
+        V_max_kP_out = dcl_pi_charge.Kp * V_max_error;            // 비례항
+        V_max_kI_out = dcl_pi_charge.i10;                         // 적분항 상태
+        V_max_control_output = pi_output;                         // PI 출력
         
         // 방전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
         // 방전 모드로 전환될 때 급격한 출력 변화 방지
-        dcl_pi_discharge.i10 = pi_output - dcl_pi_discharge.Kp * (V_lim_min - V_out);
+        dcl_pi_discharge.i10 = pi_output - dcl_pi_discharge.Kp * (V_min_lim - V_out);
         if (dcl_pi_discharge.i10 > 2.0f) dcl_pi_discharge.i10 = 2.0f;
         else if (dcl_pi_discharge.i10 < I_cmd_PI) dcl_pi_discharge.i10 = I_cmd_PI;
         
     } else {
         // =====================================================================
-        // 방전 모드 (I_com < 0): 저전압 제어
+        // 방전 모드 (I_cmd < 0): 저전압 제어
         // =====================================================================
         
         // 동적 하한값 업데이트 (전류 제한에 따라)
         dcl_pi_discharge.Umin = I_cmd_PI;
         
         // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
-        pi_output = DCL_runPI_C1(&dcl_pi_discharge, V_lim_min, V_out);
+        pi_output = DCL_runPI_C1(&dcl_pi_discharge, V_min_lim, V_out);
         
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
-        V_lim_min_error = V_lim_min - V_out;                           // 에러 계산
-        V_lim_min_kP_out = dcl_pi_discharge.Kp * V_lim_min_error;       // 비례항
-        V_lim_min_kI_out = dcl_pi_discharge.i10;                // 적분항 상태
-        V_lim_min_error_PI_out = pi_output;                       // PI 출력
+        V_min_error = V_min_lim - V_out;                        // 에러 계산
+        V_min_kP_out = dcl_pi_discharge.Kp * V_min_error;       // 비례항
+        V_min_kI_out = dcl_pi_discharge.i10;                    // 적분항 상태
+        V_min_control_output = pi_output;                       // PI 출력
         
         // 충전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
         // 충전 모드로 전환될 때 급격한 출력 변화 방지
-        dcl_pi_charge.i10 = pi_output - dcl_pi_charge.Kp * (V_lim_max - V_out);
+        dcl_pi_charge.i10 = pi_output - dcl_pi_charge.Kp * (V_max_lim - V_out);
         if (dcl_pi_charge.i10 > I_cmd_PI) dcl_pi_charge.i10 = I_cmd_PI;
         else if (dcl_pi_charge.i10 < -2.0f) dcl_pi_charge.i10 = -2.0f;
     }
@@ -1061,13 +1035,12 @@ void PIControlDCL(void) {
 void ParseModbusData(void) {
     // C89 변수 선언
     Uint16 i;
-    
+    /* 송신 데이터 처리 */
+    I_fb_total.f = 0;
     // 총 출력 전류 계산 (마스터 + 모든 슬레이브)
-    I_fb_total.f = I_avg;
-    for(i = 1; i <= 9; i++) {
+    for(i = 0; i <= 9; i++) {
         I_fb_total.f += I_fb_array[i].f;
     }
-
     // Modbus Input Register에 전류값 저장 (32bit float -> 2개 16bit)
     usRegInputBuf[4] = (Uint16) (I_fb_total.u);
     usRegInputBuf[5] = (Uint16) (I_fb_total.u >> 16);
@@ -1076,9 +1049,10 @@ void ParseModbusData(void) {
     usRegInputBuf[10] = (Uint16) (V_fb_avg.u);
     usRegInputBuf[11] = (Uint16) (V_fb_avg.u >> 16);
 
-    // 시작/정지 명령 처리
-    if     (usRegHoldingBuf[0] & 0x0008)  system_state = STATE_RUNNING;
-    else if(usRegHoldingBuf[0] & 0x0010)  system_state = STATE_STOP;
+    /* 수신 데이터 처리 */
+    // 시작/정지 명령 처리 (bit 3: SYSTEM_START, bit 4: SYSTEM_STOP)
+    if     (usRegHoldingBuf[0] & (1U << 3))  system_state = STATE_RUNNING; // 시작
+    else if(usRegHoldingBuf[0] & (1U << 4))  system_state = STATE_STOP;    // 정지
 
     // 충전/방전 모드 설정 (강제로 64 설정)
     usRegHoldingBuf[2] = 64; // 배터리 충전/방전 CC 모드 (64) 강제 설정
@@ -1091,38 +1065,30 @@ void ParseModbusData(void) {
         case PowerSupply_CV_Mode:           // 전원공급 CV 모드         (16)
         case PowerSupply_CC_Mode:           // 전원공급 CC 모드         (32)
         case As_a_Battery_CV_Mode:          // 배터리 시뮬레이션 CV 모드 (128)
-            Vout_Reference = usRegHoldingBuf[5]; 
-            Iout_Reference = ((int16)usRegHoldingBuf[7]); 
+            UI_V_cmd = usRegHoldingBuf[5]; 
+            UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8]<<16) | (Uint32)usRegHoldingBuf[7]);
             break;
             
         case ElectronicLoad_CR_Mode:        // 전자부하 CR 모드          (8)
-            Vout_Reference = usRegHoldingBuf[5]; 
-            Iout_Reference = ((int16)usRegHoldingBuf[7]);
+            UI_V_cmd = usRegHoldingBuf[5]; 
+            UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8]<<16) | (Uint32)usRegHoldingBuf[7]);
             load_resistance.u = (((Uint32)usRegHoldingBuf[10]<<16) | (Uint32)usRegHoldingBuf[9]);
             break;
             
         case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드  (64)
-            V_lim_max = usRegHoldingBuf[5];
-            V_lim_min = usRegHoldingBuf[12];
-            Iout_Reference = ((int16)usRegHoldingBuf[7]);
+            V_max_lim = usRegHoldingBuf[5];
+            V_min_lim = usRegHoldingBuf[12];
+            UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8]<<16) | (Uint32)usRegHoldingBuf[7]);
             break;
             
         default:
             break;
     }
 
-    // UI 전류 지령값 추출 (32bit float)
-    UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8]<<16) | (Uint32)usRegHoldingBuf[7]);
-
-    // 모듈 개수로 나눈 전류 지령 계산
-    I_cmd_tmp = UI_I_cmd.f / MODULE_NUM;
-
-    // 전류 지령 제한 (-80A ~ +80A)
-    if     (I_cmd_tmp >  I_MAX) I_cmd_tmp =  I_MAX;
-    else if(I_cmd_tmp < -I_MAX) I_cmd_tmp = -I_MAX;
-
-    // 최종 전류 지령 설정
-    I_com = I_cmd_tmp;
+    // 모듈 개수로 나눈 전류 지령 계산 및 제한 (-80A ~ +80A)
+    I_cmd = UI_I_cmd.f / MODULE_NUM;
+    if     (I_cmd >  I_MAX) I_cmd =  I_MAX;
+    else if(I_cmd < -I_MAX) I_cmd = -I_MAX;
 }
 
 /**
@@ -1144,28 +1110,17 @@ void ParseModbusData(void) {
  * 
  * @note 이 함수는 epwm3_isr의 Case 4에서 20kHz로 호출됨
  */
-void CalcCurrentAverage(void) {
-    // C89 변수 선언을 맨 앞에 위치
-    float32 I_ADC_avg;
-    float32 I_actual;
-    
-    // ADC 평균값 계산 (5회 평균)
-    I_ADC_avg = I_ADC_sum * 0.2f;
-    I_ADC_sum = 0;
-
-    // ADC 값을 실제 전류값으로 변환
+void Calc_I_fb_avg(void) {    
+    // ADC 값을 실제 전류값으로 변환하여 직접 누적
     // ADC 3V -> 4095, 0A : 1.5V, +100A : 3V, -100A : 0V
-    I_actual = (I_ADC_avg - 2048) * 0.048828125f; // 100 / 2048
-
-    // 모니터링용 평균 계산을 위한 누적
-    I_fb_sum += I_actual;
+    I_fb_sum += (I_out_ADC_avg - 2048) * 0.048828125f; // 100 / 2048
 
     // 10000번 평균 계산 완료 시 최종 평균값 저장
-    if (I_avg_count++ == MON_MAXCNT)
+    if (I_cal_cnt++ == 10000)
     {
-        I_sensor.f = I_fb_sum * MON_MAXCNT_REV; // 10000번 평균
+        I_fb_avg = I_fb_sum * 0.0001; // 10000번 평균
         I_fb_sum = 0;
-        I_avg_count = 0;
+        I_cal_cnt = 0;
     }
 }
 
@@ -1175,7 +1130,7 @@ void CalcCurrentAverage(void) {
  * @details 전압 센서값의 장기 평균 계산 (모니터링 및 Modbus 전송용)
  * 
  * @section voltage_sensing 전압 센싱
- * - **입력**: V_out_fb (스케일링된 실제 전압값)
+ * - **입력**: V_fb (스케일링된 실제 전압값)
  * - **누적**: 10000회 누적하여 평균 계산
  * - **주기**: 20kHz로 호출되어 0.5초마다 평균값 갱신
  * 
@@ -1185,17 +1140,16 @@ void CalcCurrentAverage(void) {
  * 
  * @note 이 함수는 epwm3_isr의 Case 3에서 20kHz로 호출됨
  */
-void CalcVoltageAverage(void) {
+void Calc_V_fb_avg(void) {
     // 전압 센서값 누적
-    V_sum_mon += V_out_fb;
+    V_fb_sum += V_fb;
 
     // 10000번 평균 계산 완료 시 최종 평균값 저장
-    if (V_count++ == 10000)
+    if (V_cal_cnt++ == 10000)
     {
-        V_avg = V_sum_mon * 0.0001;      // 평균값 계산
-        V_sum_mon = 0.;                         // 누적값 초기화
-        V_count = 0;                                // 카운터 초기화
-        V_fb_avg.f = V_avg;              // 모니터링용 평균값 저장
+        V_fb_avg.f = V_fb_sum * 0.0001;  // 평균값 계산
+        V_fb_sum = 0.;                   // 누적값 초기화
+        V_cal_cnt = 0;                   // 카운터 초기화
     }
 }
 

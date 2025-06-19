@@ -287,7 +287,7 @@ extern Uint16 can_360_timeout_counter; // Heart Bit 타임아웃 카운터
 extern Uint16 can_360_timeout_flag;    // Heart Bit 타임아웃 플래그
 
 extern Uint16 hw_fault;
-extern float32 V_out_fb;
+extern float32 V_fb;
 extern Uint16 over_voltage_flag;
 
 // 전역 변수 선언
