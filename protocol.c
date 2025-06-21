@@ -1,11 +1,13 @@
 // protocol.c - 프로토콜 처리 모듈
 // CAN 통신을 통한 충/방전 명령 처리 및 상태 보고 기능 제공
 
+#include "DSP28x_Project.h"
+#include "HG2.h"
 #include "protocol.h"
 
 #define MODULE_CHANNEL 0x01 // 모듈 채널번호
 
-// 외부 모듈 변수 선언 (sicDCDC35kw.h에서 정의됨)
+// 외부 모듈 변수 선언 (HG2.h에서 정의됨)
 extern float32 Bat_Mean;
 extern float32 V_max_lim;
 extern float32 V_min_lim;
@@ -387,7 +389,7 @@ void SendCANEndReport(Uint32 mbox_num)
 void UpdateCANFeedbackValues(void)
 {
     extern float32 V_out;   // 전압 (V)
-    extern float32 temp_in; // 35kW 프로그램의 온도 값 (°C)
+    extern float32 temp_in; // 모듈제어 프로그램의 온도 값 (°C)
     static Uint16 operation_tick_counter = 0;
     static Uint16 cv_tick_counter = 0;
     static Uint16 capacity_tick_counter = 0;

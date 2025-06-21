@@ -1,19 +1,24 @@
-/* ==============================================================================
-System Name:
+/**
+ * @file HG2_setting.h
+ * @brief 35kW DC-DC 컨버터 시스템 설정 헤더 파일
+ *
+ * @details
+ * 이 파일은 시스템 초기화 함수들의 선언과 관련 상수를 포함합니다.
+ * 주요 내용:
+ * - 하드웨어 초기화 함수 선언
+ * - PWM 주기 상수 정의
+ * - GPIO 설정 함수 선언
+ * - 통신 모듈 초기화 함수 선언
+ *
+ * @author 개발팀
+ * @date 2024
+ * @version 2.0
+ *
+ * @copyright Copyright (c) 2024
+ */
 
-File Name:      {ProjectName}-Settings.h
-
-Target:
-
-Author: Manish Bhardwaj, C2000 Systems Solutions Group
-
-Description:
-
-Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
- * ALL RIGHTS RESERVED*
-=================================================================================  */
-#ifndef _PROJSETTINGS_H
-#define _PROJSETTINGS_H
+#ifndef _HG2_SETTING_H_
+#define _HG2_SETTING_H_
 
 #ifdef __cplusplus
 
@@ -60,4 +65,4 @@ extern "C"
 }
 #endif /* extern "C" */
 
-#endif //_PROJSETTINGS_H
+#endif //_HG2_SETTING_H_

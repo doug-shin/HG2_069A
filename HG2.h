@@ -1,45 +1,41 @@
 /**
- * @file sicDCDC35kw.h
+ * @file HG2.h
  * @brief 35kW DC-DC 컨버터 제어 시스템 헤더 파일
  *
- * @details 시스템 구조:
- * - 마스터/슬레이브 구조의 병렬 운전 시스템
- * - 제어 컴퓨터 → 마스터: SCI Modbus RTU (38400bps, 전류/전압 지령)
- * - 마스터 → 슬레이브: SCI 485 (5.625Mbps, 전류지령 브로드캐스팅)
- * - 슬레이브 → 마스터: CAN (500kbps, 전류 피드백)
- * - 마스터 ↔ 제어 컴퓨터: CAN Protocol (500kbps, 상태 보고)
+ * @details
+ * 이 파일은 35kW DC-DC 컨버터 제어 시스템의 모든 변수, 상수, 함수 선언을 포함합니다.
  *
- * @author Original + Protocol Integration
- * @date 2025.02.26
+ * @section file_organization 파일 구성
+ * 1. 시스템 상수 및 설정
+ * 2. 하드웨어 매크로 정의
+ * 3. 데이터 타입 정의
+ * 4. 변수 선언 (기능별 그룹화)
+ * 5. 함수 선언 (카테고리별 분류)
+ * 6. 외부 변수 선언
+ *
+ * File Name: HG2.h
+ * Target: TI F28069 Piccolo Microcontroller
+ * Compiler: TI C2000 Code Generation Tools
+ * Hardware: 35kW DC-DC Converter Control Board
+ *
+ * @author 개발팀
+ * @date 2024
+ * @version 2.0
+ *
+ * @copyright Copyright (c) 2024
+ *
+ * @note 이 헤더 파일은 메인 소스 파일과 설정 파일에서 공통으로 사용됩니다.
  */
-
-/* ==============================================================================
-System Name: 35kW DC-DC Converter Control System
-File Name: sicDCDC35kw.h
-Target: TMS320F28069
-Author: Original + Protocol Integration
-Description:
-- Master/Slave parallel operation system
-- Control Computer → Master: SCI Modbus RTU (current/voltage commands)
-- Master → Slaves: SCI 485 broadcasting (current commands)
-- Slaves → Master: CAN feedback (current sensing)
-- Master ↔ Control Computer: CAN Protocol (status reporting)
-Copyright (C) {2015} Texas Instruments Incorporated - http://www.ti.com/
- * ALL RIGHTS RESERVED*
-=================================================================================  */
-
-//*****************************************************************************
-// the includes
-//*****************************************************************************
 
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-#include <string.h>
-#include <math.h>
+//*****************************************************************************
+// 헤더 파일 포함
+//*****************************************************************************
 #include "DSP28x_Project.h"
 #include "DCLF32.h"
-#include "sicDCDC35kw_setting.h"
+#include "HG2_setting.h"
 #include "modbus.h"
 #include "protocol.h"
 
@@ -452,7 +448,7 @@ void eCanaConfig(void); ///< CAN 설정 (슬레이브 피드백, 500kbps)
 // 10. EXTERNAL VARIABLE DECLARATIONS
 //=============================================================================
 /**
- * @brief 다른 파일에서 sicDCDC35kw.h를 include할 때 사용하는 외부 변수 선언
+ * @brief 다른 파일에서 HG2.h를 include할 때 사용하는 외부 변수 선언
  * @details 컴파일 시 중복 선언을 방지하기 위해 extern으로 선언
  */
 

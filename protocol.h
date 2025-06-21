@@ -2,7 +2,7 @@
 #define PROTOCOL_H_
 
 #include <string.h>
-#include "sicDCDC35kw.h"
+#include "HG2.h"
 
 // Endian 변환 매크로
 #define SWAP16(data, offset) ((((Uint16)(data)[(offset) + 1]) << 8) | \

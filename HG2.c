@@ -1,54 +1,42 @@
 /**
- * @file sicDCDC35kw.c
+ * @file HG2.c
  * @brief 35kW DC-DC 컨버터 제어 시스템 메인 소스 파일
- * @version 2025.02.26 final 정상 동작 확인
  *
- * @details 시스템 아키텍처 및 통신 구조:
+ * @details
+ * 이 파일은 35kW DC-DC 컨버터의 메인 제어 로직을 포함합니다.
+ * 주요 기능:
+ * - Modbus RTU 통신을 통한 전류/전압 지령 수신
+ * - PI 제어를 통한 전압 제어 (충전/방전 모드)
+ * - CAN 통신을 통한 슬레이브 모듈 관리
+ * - 과전압/하드웨어 폴트 보호
+ * - 온도 모니터링 및 팬 제어
+ * - RS485 통신을 통한 슬레이브 전류 지령 전송
  *
- * ┌─────────────────┐    SCI Modbus RTU    ┌─────────────────┐
- * │   제어 컴퓨터      │◄──────38400bps──────►│   마스터 모듈      │
- * │  (Control PC)   │    CAN Protocol      │  (Master F28069)│
- * └─────────────────┘◄──────500kbps───────►└─────────────────┘
- *                                                   │
- *                                          SCI 485  │ 5.625Mbps
- *                                         (전류지령   │ 브로드캐스팅)
- *                                         브로드캐스팅)│
- *                                                   ▼
- *                    ┌─────────────────┬─────────────────┬─────────────────┐
- *                    │   슬레이브 1      │   슬레이브 2       │   슬레이브 N      │
- *                    │ (Slave F28069)  │ (Slave F28069)  │ (Slave F28069)  │
- *                    └─────────────────┴─────────────────┴─────────────────┘
- *                            │                 │                 │
- *                            └─────CAN 500kbps─┴─────────────────┘
- *                                  (전류 피드백)
+ * @section control_algorithm 제어 알고리즘
+ * - **100kHz ePWM3 인터럽트**: 메인 제어 루프
+ * - **20kHz 분주**: 5단계 순차 처리 (전압센싱, PI제어, 통신, 온도, 평균계산)
+ * - **PI 제어**: 충전/방전 모드별 독립적인 PI 컨트롤러
+ * - **소프트 스타트**: 전류 램프업을 통한 안전한 기동
  *
- * @section communication_spec 통신 사양
- * - **제어 컴퓨터 ↔ 마스터**:
- *   - SCI Modbus RTU: 38400bps, 8bit/1stop/none, 100ms polling (전류/전압 지령)
- *   - CAN Protocol: 500kbps, 상태 보고 및 제어 명령
- * - **마스터 → 슬레이브**: SCI 485, 5.625Mbps, 0.1ms마다 전류지령 브로드캐스팅
- * - **슬레이브 → 마스터**: CAN 500kbps, 1ms polling, 전류 피드백
- * - **터미널**: SCI-B 230400bps (슬레이브 모니터링용)
+ * @section communication 통신 시스템
+ * - **Modbus RTU**: 제어 컴퓨터와의 명령/상태 통신 (38.4kbps)
+ * - **CAN**: 슬레이브 모듈 피드백 수신 (500kbps)
+ * - **RS485**: 슬레이브 전류 지령 브로드캐스팅 (5.625Mbps)
  *
- * @section control_spec 제어 사양
- * - **PI 제어**: 20kHz (50us 주기), DCL 라이브러리 최적화 지원
- * - **전류 범위**: ±100A (0A=1.5V, +100A=3V, -100A=0V)
- * - **DAC 출력**: 12bit, 기본값 2000 (OFF 상태)
- * - **클럭**: LSPCLK 90MHz/(7+1) = 11.25MHz
+ * @section safety_features 안전 기능
+ * - 과전압 보호 (1100V 이상)
+ * - 하드웨어 폴트 감지 (GPIO 기반)
+ * - 워치독 타이머
+ * - 소프트 스타트 제어
  *
- * @section hardware_pinmap 하드웨어 핀맵
- * - **DIP Switch**: GPIO10,11,41,55 (CAN ID 설정)
- * - **LED**: GPIO4(RUN), GPIO5(FAULT), GPIO27,57(상태)
- * - **ADC**: CH0(온도), CH1(전류), CH2(전압)
- * - **SPI**: ADC/DAC 통신 (11.25MHz)
- * - **EEPROM**: SDA(GPIO32), SCL(GPIO33), WP(GPIO14)
- * - **485 통신**: 종단저항 양단 200mV 이상 필요
+ * @author 개발팀
+ * @date 2024
+ * @version 2.0
  *
- * @section system_architecture 시스템 아키텍처
- * - **마스터**: PI 제어 + 전류지령 생성 → 485로 슬레이브에 전송
- * - **슬레이브**: CAN으로 센싱 전류값을 마스터에 피드백
- * - **병렬 운전**: 160A = 슬레이브 2개 × 80A (각각 4V/0V 출력)
- * - **Protocol 시스템**: 제어 컴퓨터와의 CAN 통신 (MBOX 16~31 사용)
+ * @copyright Copyright (c) 2024
+ *
+ * @note 이 파일은 TI F28069 마이크로컨트롤러용으로 작성되었습니다.
+ *       DCL 라이브러리를 사용한 최적화된 PI 제어기를 포함합니다.
  */
 
 /*===========================================================================
@@ -70,7 +58,20 @@
 #ifndef _MAIN_C_
 #define _MAIN_C_
 
-#include "sicDCDC35kw.h"
+//*****************************************************************************
+// 헤더 파일 포함
+//*****************************************************************************
+#include <string.h>
+#include <math.h>
+
+// TI C2000 Device Support
+#include "DSP28x_Project.h"
+
+// DCL 라이브러리 (Digital Control Library)
+#include "DCLF32.h"
+
+// 프로젝트 헤더 파일
+#include "HG2.h"
 
 // CAN Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol; // 프로토콜 구조체
@@ -415,7 +416,7 @@ void main(void)
                 {
                     // CAN 데이터 수신됨 (배열에 직접 저장)
                     I_fb_array[i].u = mbox_array[i].MDL.all;
-                    ECanaRegs.CANRMP.all = (1 << i); // 해당 비트만 클리어
+                    ECanaRegs.CANRMP.all = ((Uint32)1 << i); // 해당 비트만 클리어
                     can_rx_fault_cnt[i] = 0;
                 }
                 else
@@ -938,8 +939,8 @@ void PIControlUnified(void)
 
         // 방전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
         ki_accumulator_discharge = V_max_control_output - kp_out;
-        if (ki_accumulator_discharge > 2)
-            ki_accumulator_discharge = 2;
+        if (ki_accumulator_discharge > 2.0f)
+            ki_accumulator_discharge = 2.0f;
         else if (ki_accumulator_discharge < I_cmd_PI)
             ki_accumulator_discharge = I_cmd_PI;
     }
@@ -978,8 +979,8 @@ void PIControlUnified(void)
         ki_accumulator_charge = V_min_control_output - kp_out;
         if (ki_accumulator_charge > I_cmd_PI)
             ki_accumulator_charge = I_cmd_PI;
-        else if (ki_accumulator_charge < -2)
-            ki_accumulator_charge = -2;
+        else if (ki_accumulator_charge < -2.0f)
+            ki_accumulator_charge = -2.0f;
     }
 }
 
@@ -1081,8 +1082,7 @@ void PIControlDCL(void)
         V_min_kI_out = dcl_pi_discharge.i10;              // 적분항 상태
         V_min_control_output = pi_output;                 // PI 출력
 
-        // 충전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
-        // 충전 모드로 전환될 때 급격한 출력 변화 방지
+        // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
         dcl_pi_charge.i10 = pi_output - dcl_pi_charge.Kp * (V_max_lim - V_out);
         if (dcl_pi_charge.i10 > I_cmd_PI)
             dcl_pi_charge.i10 = I_cmd_PI;
@@ -1300,17 +1300,21 @@ void ControlFanPwm(void)
  */
 __interrupt void ecan0_isr(void)
 {
+    // Protocol 메일박스 30번 처리
     if (ECanaRegs.CANRMP.bit.RMP30 != 0)
     {
         ProcessCANCommand(30, 24);
+        ECanaRegs.CANRMP.all = ((Uint32)1 << 30);   // RMP30만 클리어
+        ECanaRegs.CANGIF0.all = ((Uint32)1 << 30);  // GMIF30만 클리어
     }
 
+    // Protocol 메일박스 31번 처리
     if (ECanaRegs.CANRMP.bit.RMP31 != 0)
     {
         ProcessCANCommand(31, 25);
+        ECanaRegs.CANRMP.all = ((Uint32)1 << 31);   // RMP31만 클리어
+        ECanaRegs.CANGIF0.all = ((Uint32)1 << 31);  // GMIF31만 클리어
     }
-
-    ECanaRegs.CANGIF0.all = 0xFFFFFFFF;
 
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }

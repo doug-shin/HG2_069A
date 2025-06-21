@@ -1,12 +1,48 @@
-//=============================================================================
-// 35kW DC-DC Converter Hardware Initialization
-// File: sicDCDC35kw_setting.c
-// 하드웨어 초기화 함수 모음 (PWM, ADC, GPIO, SPI, SCI, CAN)
-//=============================================================================
+/**
+ * @file HG2_setting.c
+ * @brief 35kW DC-DC 컨버터 시스템 초기화 및 설정 파일
+ *
+ * @details
+ * 이 파일은 35kW DC-DC 컨버터 시스템의 하드웨어 초기화와 설정을 담당합니다.
+ * 주요 기능:
+ * - GPIO 핀 설정 및 초기화
+ * - ePWM 모듈 설정 (메인 제어 타이밍, 팬 PWM)
+ * - SPI 통신 설정 (ADC/DAC)
+ * - CAN 통신 설정 (슬레이브 피드백)
+ * - ADC 모듈 설정 (온도/전류/전압 센싱)
+ * - 시스템 클럭 설정
+ * - 인터럽트 벡터 설정
+ * - 디지털 I/O 처리
+ *
+ * @section initialization_sequence 초기화 순서
+ * 1. 시스템 클럭 설정 (90MHz)
+ * 2. GPIO 핀 기능 설정
+ * 3. ePWM 모듈 초기화
+ * 4. SPI 통신 초기화
+ * 5. CAN 통신 초기화
+ * 6. ADC 모듈 초기화
+ * 7. 인터럽트 설정
+ *
+ * @section hardware_configuration 하드웨어 설정
+ * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz
+ * - **ePWM1**: 팬 PWM 제어 (10kHz)
+ * - **ePWM3**: 메인 제어 타이밍 (100kHz)
+ * - **SPI-A**: ADC/DAC 통신 (11.25MHz)
+ * - **CAN-A**: 슬레이브 통신 (500kbps)
+ * - **ADC**: 온도/전류/전압 센싱
+ *
+ * @author 개발팀
+ * @date 2024
+ * @version 2.0
+ *
+ * @copyright Copyright (c) 2024
+ *
+ * @note 이 파일은 시스템 부팅 시 한 번만 실행되는 초기화 함수들을 포함합니다.
+ */
 
-#include "DSP28x_Project.h" // Device Headerfile and Examples Include File
+#include "DSP28x_Project.h"
+#include "HG2_setting.h"
 #include "modbus.h"
-#include "sicDCDC35kw_setting.h"
 
 //=============================================================================
 // GPIO 디지털 입력 변수 정의

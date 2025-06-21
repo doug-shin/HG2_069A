@@ -10,7 +10,7 @@
                 </extensions>
             </storageModule>
             <storageModule moduleId="cdtBuildSystem" version="4.0.0">
-                <configuration artifactExtension="out" artifactName="Example_2806x30kw_ac_dc" buildProperties="" description="" id="com.ti.ccstudio.buildDefinitions.C2000.Debug.1034685897" name="RAM" parent="com.ti.ccstudio.buildDefinitions.C2000.Debug">
+                <configuration artifactExtension="out" artifactName="Haba_G2" buildProperties="" description="" id="com.ti.ccstudio.buildDefinitions.C2000.Debug.1034685897" name="RAM" parent="com.ti.ccstudio.buildDefinitions.C2000.Debug">
                     <folderInfo id="com.ti.ccstudio.buildDefinitions.C2000.Debug.1034685897." name="/" resourcePath="">
                         <toolChain id="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.DebugToolchain.373106847" name="TI Build Tools" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.DebugToolchain" targetTool="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.linkerDebug.1008328650">
                             <option id="com.ti.ccstudio.buildDefinitions.core.OPT_TAGS.2014638150" superClass="com.ti.ccstudio.buildDefinitions.core.OPT_TAGS" valueType="stringList">
@@ -73,8 +73,8 @@
                             </tool>
                             <tool id="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.linkerDebug.1008328650" name="C2000 Linker" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.linkerDebug">
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.STACK_SIZE.859712031" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.STACK_SIZE" value="0x50" valueType="string"/>
-                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.MAP_FILE.414276263" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.MAP_FILE" value="&quot;Example_2806x30kw_ac_dc.map&quot;" valueType="string"/>
-                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OUTPUT_FILE.767810678" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OUTPUT_FILE" value="Example_2806x30kw_ac_dc.out" valueType="string"/>
+                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.MAP_FILE.414276263" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.MAP_FILE" value="Haba_G2.map" valueType="string"/>
+                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OUTPUT_FILE.767810678" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OUTPUT_FILE" value="Haba_G2.out" valueType="string"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.generatedLinkerCommandFiles.1625048437" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.generatedLinkerCommandFiles" valueType="stringList">
                                     <listOptionValue value="&quot;$(GEN_CMDS_QUOTED)&quot;"/>
                                 </option>
@@ -93,15 +93,13 @@
                                     <listOptionValue value="${CG_TOOL_ROOT}/include"/>
                                 </option>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.PRIORITY.1495926520" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.PRIORITY" value="true" valueType="boolean"/>
-                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DEFINE.1238057599" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DEFINE" valueType="definedSymbols">
-                                    <listOptionValue value="CLA_SCRATCHPAD_SIZE=0x100"/>
-                                </option>
+                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DEFINE.1238057599" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DEFINE" valueType="definedSymbols"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DIAG_SUPPRESS.142146722" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.DIAG_SUPPRESS" valueType="stringList">
                                     <listOptionValue value="16002"/>
                                 </option>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.ISSUE_REMARKS.1472543610" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.ISSUE_REMARKS" value="true" valueType="boolean"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.VERBOSE_DIAGNOSTICS.311706200" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.VERBOSE_DIAGNOSTICS" value="true" valueType="boolean"/>
-                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.XML_LINK_INFO.428781750" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.XML_LINK_INFO" value="&quot;Example_2806xEPwmDeadBand_linkInfo.xml&quot;" valueType="string"/>
+                                <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.XML_LINK_INFO.428781750" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.XML_LINK_INFO" value="Haba_G2.xml" valueType="string"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.ENTRY_POINT.913102700" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.ENTRY_POINT" value="code_start" valueType="string"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OTHER_FLAGS.2018083414" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.linkerID.OTHER_FLAGS" valueType="stringList">
                                     <listOptionValue value=""/>
@@ -113,20 +111,6 @@
                             <tool id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.1835349768" name="C2000 Hex Utility" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex"/>
                         </toolChain>
                     </folderInfo>
-                    <fileInfo id="com.ti.ccstudio.buildDefinitions.C2000.Debug.1034685897.sicDCDC35kw.c" name="sicDCDC35kw.c" rcbsApplicability="disable" resourcePath="sicDCDC35kw.c" toolsToInvoke="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.1728982931">
-                        <tool id="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.1728982931" name="C2000 Compiler" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.1957908722">
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__C_SRCS.867354516" name="C Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__C_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__CPP_SRCS.55900601" name="C++ Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__CPP_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM_SRCS.766782798" name="Assembly Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM2_SRCS.64149542" name="Assembly Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM2_SRCS"/>
-                        </tool>
-                        <tool customBuildStep="true" id="org.eclipse.cdt.managedbuilder.ui.rcbs.719295620.631687544.1174410873.1042152632" name="Resource Custom Build Step">
-                            <inputType id="org.eclipse.cdt.managedbuilder.ui.rcbs.inputtype.276811850.1752266345.580750406.262423109" name="Resource Custom Build Step Input Type">
-                                <additionalInput kind="additionalinputdependency" paths=""/>
-                            </inputType>
-                            <outputType id="org.eclipse.cdt.managedbuilder.ui.rcbs.outputtype.1606966348.1505232296.1438444064.720673014" name="Resource Custom Build Step Output Type"/>
-                        </tool>
-                    </fileInfo>
                     <sourceEntries>
                         <entry excluding="F28069_FLASH_custom.cmd|FLASH" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
                     </sourceEntries>
@@ -246,20 +230,6 @@
                             <tool id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.1835349768" name="C2000 Hex Utility" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex"/>
                         </toolChain>
                     </folderInfo>
-                    <fileInfo id="com.ti.ccstudio.buildDefinitions.C2000.Debug.640818083.sicDCDC35kw.c" name="sicDCDC35kw.c" rcbsApplicability="disable" resourcePath="sicDCDC35kw.c" toolsToInvoke="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.479986781">
-                        <tool id="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.479986781" name="C2000 Compiler" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.exe.compilerDebug.848208124">
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__C_SRCS.658782919" name="C Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__C_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__CPP_SRCS.1547625235" name="C++ Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__CPP_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM_SRCS.1736414596" name="Assembly Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM_SRCS"/>
-                            <inputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM2_SRCS.649296020" name="Assembly Sources" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compiler.inputType__ASM2_SRCS"/>
-                        </tool>
-                        <tool customBuildStep="true" id="org.eclipse.cdt.managedbuilder.ui.rcbs.719295620.631687544.1174410873.1997839611" name="Resource Custom Build Step">
-                            <inputType id="org.eclipse.cdt.managedbuilder.ui.rcbs.inputtype.276811850.1752266345.580750406.262423109" name="Resource Custom Build Step Input Type">
-                                <additionalInput kind="additionalinputdependency" paths=""/>
-                            </inputType>
-                            <outputType id="org.eclipse.cdt.managedbuilder.ui.rcbs.outputtype.1606966348.1505232296.1438444064.1758938594" name="Resource Custom Build Step Output Type"/>
-                        </tool>
-                    </fileInfo>
                     <sourceEntries>
                         <entry excluding="F28069_RAM_custom.cmd|RAM" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
                     </sourceEntries>
