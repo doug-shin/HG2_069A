@@ -18,13 +18,18 @@
  * Compiler: TI C2000 Code Generation Tools
  * Hardware: 35kW DC-DC Converter Control Board
  *
- * @author 개발팀
+ * @author 김은규 (원작자)
+ * @author 신덕균 (수정자)
  * @date 2024
  * @version 2.0
  *
  * @copyright Copyright (c) 2024
  *
  * @note 이 헤더 파일은 메인 소스 파일과 설정 파일에서 공통으로 사용됩니다.
+ * 
+ * @history
+ * - v1.0: 김은규 - 초기 개발 (기본 변수 선언, 함수 프로토타입)
+ * - v2.0: 신덕균 - 변수 체계화 및 주석 개선 (기능별 그룹화, 상세 주석 추가)
  */
 
 #ifndef _MAIN_H_
@@ -66,7 +71,13 @@
 #define EEPROM_WP_EN() (GpioDataRegs.GPASET.bit.GPIO14 = 1)       ///< EEPROM 쓰기 보호 활성화
 #define EEPROM_WP_DIS() (GpioDataRegs.GPACLEAR.bit.GPIO14 = 1)    ///< EEPROM 쓰기 보호 비활성화
 
-#define BUCK_EN (GpioDataRegs.GPADAT.bit.GPIO17)                  ///< Buck 컨버터 인에이블 상태
+#define BUCK_EN (GpioDataRegs.GPADAT.bit.GPIO17)                  ///< Buck 컨버터 인에이블 상태 읽기
+
+#define BUCK_ENABLE() (GpioDataRegs.GPADAT.bit.GPIO17 = 0)        ///< Buck 컨버터 활성화 (Active Low)
+#define BUCK_DISABLE() (GpioDataRegs.GPADAT.bit.GPIO17 = 1)       ///< Buck 컨버터 비활성화 (Active Low)
+
+#define DISCHARGE_FET_ON() (GpioDataRegs.GPADAT.bit.GPIO19 = 0)   ///< 방전 FET 켜기 (Active Low)
+#define DISCHARGE_FET_OFF() (GpioDataRegs.GPADAT.bit.GPIO19 = 1)  ///< 방전 FET 끄기 (Active Low)
 
 #define LED2_ON() (GpioDataRegs.GPBSET.bit.GPIO57 = 1)            ///< LED2 켜기
 #define LED2_OFF() (GpioDataRegs.GPBCLEAR.bit.GPIO57 = 1)         ///< LED2 끄기
@@ -392,7 +403,7 @@ extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk); ///< DCL 어셈
  * @{
  */
 
-void ReadGpioInputs(void); ///< GPIO 디지털 입력 읽기 (DIP 스위치, 시작/정지)
+void ReadGpioInputs(void); ///< GPIO 디지털 입력 읽기 (DIP 스위치, 운전 스위치)
 void Calc_I_fb_avg(void);  ///< 전류 평균 계산 (10000회 평균)
 void Calc_V_fb_avg(void);  ///< 전압 평균 계산 (10000회 평균)
 

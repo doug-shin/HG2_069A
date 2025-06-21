@@ -31,13 +31,18 @@
  * - **CAN-A**: 슬레이브 통신 (500kbps)
  * - **ADC**: 온도/전류/전압 센싱
  *
- * @author 개발팀
+ * @author 김은규 (원작자)
+ * @author 신덕균 (수정자)
  * @date 2024
  * @version 2.0
  *
  * @copyright Copyright (c) 2024
  *
  * @note 이 파일은 시스템 부팅 시 한 번만 실행되는 초기화 함수들을 포함합니다.
+ * 
+ * @history
+ * - v1.0: 김은규 - 초기 개발 (하드웨어 초기화 함수)
+ * - v2.0: 신덕균 - 코드 정리 및 주석 개선
  */
 
 #include "DSP28x_Project.h"
@@ -48,7 +53,7 @@
 // GPIO 디지털 입력 변수 정의
 //=============================================================================
 Uint16 Board_ID = 0;     // DIP 스위치로부터 읽은 보드 ID (4비트)
-Uint16 power_switch = 0; // 전원 스위치 상태 (GPIO54)
+Uint16 run_switch = 0; // 운전 스위치 상태 (GPIO54)
 
 //=============================================================================
 // PWM 초기화 함수들
@@ -299,8 +304,8 @@ void ReadGpioInputs(void)
                (GpioDataRegs.GPBDAT.bit.GPIO55 << 2) | // DIP Switch_3 (Bit2)
                (GpioDataRegs.GPBDAT.bit.GPIO41 << 3);  // DIP Switch_4 (Bit3)
 
-    // Start/Stop 스위치 읽기 (하드웨어에서 이미 필터링된 값)
-    power_switch = GpioDataRegs.GPBDAT.bit.GPIO54;
+    // 운전 스위치 읽기 (하드웨어에서 이미 필터링된 값)
+    run_switch = GpioDataRegs.GPBDAT.bit.GPIO54;
 }
 
 //=============================================================================

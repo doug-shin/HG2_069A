@@ -10,28 +10,32 @@
  * - GPIO 설정 함수 선언
  * - 통신 모듈 초기화 함수 선언
  *
- * @author 개발팀
+ * @author 김은규 (원작자)
+ * @author 신덕균 (수정자)
  * @date 2024
  * @version 2.0
  *
  * @copyright Copyright (c) 2024
+ * 
+ * @history
+ * - v1.0: 김은규 - 초기 개발 (함수 선언)
+ * - v2.0: 신덕균 - 주석 개선 및 구조 정리
  */
 
 #ifndef _HG2_SETTING_H_
 #define _HG2_SETTING_H_
 
 #ifdef __cplusplus
-
-extern "C"
-{
+extern "C" {
 #endif
+
 #include "DSP28x_Project.h" //for basic variable types
 
     //=============================================================================
     // GPIO 디지털 입력 변수들
     //=============================================================================
     extern Uint16 Board_ID;     // DIP 스위치로부터 읽은 보드 ID (4비트)
-    extern Uint16 power_switch; // 전원 스위치 상태 (GPIO54)
+    extern Uint16 run_switch; // 운전 스위치 상태 (GPIO54)
 
 #define ACTIVE (1) // only use when a DAC board is inserted
 

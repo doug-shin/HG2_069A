@@ -29,7 +29,8 @@
  * - 워치독 타이머
  * - 소프트 스타트 제어
  *
- * @author 개발팀
+ * @author 김은규 (원작자)
+ * @author 신덕균 (수정자)
  * @date 2024
  * @version 2.0
  *
@@ -37,6 +38,10 @@
  *
  * @note 이 파일은 TI F28069 마이크로컨트롤러용으로 작성되었습니다.
  *       DCL 라이브러리를 사용한 최적화된 PI 제어기를 포함합니다.
+ * 
+ * @history
+ * - v1.0: 김은규 - 초기 개발 (기본 제어 로직, Modbus 통신)
+ * - v2.0: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
  */
 
 /*===========================================================================
@@ -142,13 +147,12 @@ Uint16 detect_module_num = 1;
 // CAN 메일박스 배열 포인터
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
 
-Uint16 Run_on_count = 0;
+Uint16 discharge_fet_delay_cnt = 0;  ///< 방전 FET 지연 카운터 (운전 시작 후 1초)
 Uint16 timer_10ms = 0;
 
 // ADC 및 기본 설정
-float32 V_ref = 5.0f;
+const float32 V_ref = 5.0f;
 
-float32 V_out_delta = 0., V_out_monitor = 0.;
 Uint16 hw_fault = 0, gpio_dab_fault = 0, gpio_dab_fault_prev = 0;
 
 /**
@@ -193,7 +197,7 @@ void main(void)
     // 2. GPIO 초기화
     //=========================================================================
     gpio_config();
-    ReadGpioInputs(); // Board ID 읽기 및 초기 CAN ID 설정
+    ReadGpioInputs(); // DIP 스위치로 보드 ID 읽기 및 운전 스위치 상태 읽기
 
     // PWM 및 SPI GPIO 설정
     InitEPwm1Gpio();
@@ -673,16 +677,16 @@ __interrupt void epwm3_isr(void) //100kHz 호출
 
         if (system_state == STATE_RUNNING)
         {
-            if (Run_on_count++ >= 20000)
+            if (discharge_fet_delay_cnt++ >= 20000)
             { // 1초 후 방전 FET OFF
-                Run_on_count = 20000;
-                GpioDataRegs.GPADAT.bit.GPIO19 = 1; // 방전 FET OFF
+                discharge_fet_delay_cnt = 20000;
+                DISCHARGE_FET_OFF(); // 방전 FET 끄기
             }
         }
         else
         {
-            Run_on_count = 0;
-            GpioDataRegs.GPADAT.bit.GPIO19 = 0; // 방전 FET ON (지연 없음)
+            discharge_fet_delay_cnt = 0;
+            DISCHARGE_FET_ON(); // 방전 FET 켜기 (지연 없음)
         }
 
         // DAC 출력값 계산 및 제한
@@ -703,16 +707,16 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         if (V_out >= OVER_VOLTAGE)
             over_voltage_flag = 1;
 
-        // 운전 조건 확인 (하드웨어 폴트, 과전압, 스위치 입력)
-        if (hw_fault == 0 && over_voltage_flag == 0 && power_switch == 1)
+        // 운전 조건 확인 (하드웨어 폴트, 과전압, 운전 스위치 입력)
+        if (hw_fault == 0 && over_voltage_flag == 0 && run_switch == 1)
         {
             system_state = STATE_RUNNING;
-            GpioDataRegs.GPADAT.bit.GPIO17 = 0; // Buck Enable
+            BUCK_ENABLE(); // Buck 컨버터 활성화
         }
         else
         {
             system_state = STATE_STOP;
-            GpioDataRegs.GPADAT.bit.GPIO17 = 1; // Buck Disable
+            BUCK_DISABLE(); // Buck 컨버터 비활성화
         }
 
         control_phase++;
@@ -749,7 +753,7 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         { // 200 * 0.05ms = 10ms
             timer_10ms = 0;
             parse_mb_flag = 1; // Modbus 파싱 플래그 설정
-            ReadGpioInputs();  // DIP 스위치 및 스위치 입력 처리
+            ReadGpioInputs();  // DIP 스위치 및 운전 스위치 입력 처리
         }
 
         // 전류 평균 계산 및 팬 PWM 제어
@@ -779,7 +783,7 @@ __interrupt void epwm3_isr(void) //100kHz 호출
 
     if (gpio_dab_fault == 1 && gpio_dab_fault_prev == 1)
         hw_fault = 1; // 연속 폴트 감지
-    else if (power_switch == 0)
+    else if (run_switch == 0)
         hw_fault = 0; // 스위치 OFF시 폴트 해제
 
     //=========================================================================
