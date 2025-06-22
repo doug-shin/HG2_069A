@@ -26,7 +26,7 @@
  * @section hardware_configuration 하드웨어 설정
  * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz
  * - **ePWM1**: 팬 PWM 제어 (10kHz)
- * - **ePWM3**: 메인 제어 타이밍 (100kHz)
+ * - **ePWM3**: 메인 제어 타이머 (100kHz)
  * - **SPI-A**: ADC/DAC 통신 (11.25MHz)
  * - **CAN-A**: 슬레이브 통신 (500kbps)
  * - **ADC**: 온도/전류/전압 센싱
@@ -51,9 +51,8 @@
 
 //=============================================================================
 // GPIO 디지털 입력 변수 정의
+// 주요 변수들은 HG2.h에서 선언됨 (extern 선언)
 //=============================================================================
-Uint16 Board_ID = 0;     // DIP 스위치로부터 읽은 보드 ID (4비트)
-Uint16 run_switch = 0; // 운전 스위치 상태 (GPIO54)
 
 //=============================================================================
 // PWM 초기화 함수들
@@ -201,7 +200,7 @@ void AdcSetup(void)
  * - 디지털 입력: DIP 스위치 4개, 외부 스위치, 센싱 신호 3개
  * - 디지털 출력: LED 2개, Buck Enable, Discharge, CS 신호들
  * - Pull-up: DIP 스위치는 비활성화 (외부 풀업 사용)
- * - Input Qualification: GPIO54에 노이즈 필터 적용
+ * - Input Qualification: GPIO54(Run Switch)에 노이즈 필터 적용
  */
 void gpio_config(void)
 {
@@ -226,19 +225,19 @@ void gpio_config(void)
     GpioCtrlRegs.GPADIR.bit.GPIO19 = 1; // Discharge FET (출력)
     GpioCtrlRegs.GPADIR.bit.GPIO27 = 1; // Debug LED3 (출력)
 
-    // LED 및 센싱 출력 핀들 설정
-    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1; // 외부 센싱 3 (출력)
-    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 1; // 외부 센싱 2 (DAB_OK) (출력)
+    // LED 및 센싱 핀들 설정
     GpioCtrlRegs.GPBDIR.bit.GPIO44 = 1; // DAC CS (출력)
     GpioCtrlRegs.GPBDIR.bit.GPIO57 = 1; // Debug LED2 (출력)
 
     // DIP 스위치 입력 핀들 설정 (기본적으로 입력이므로 방향은 설정 안함)
-    GpioCtrlRegs.GPADIR.bit.GPIO10 = 0; // DIP Switch_2 (입력)
     GpioCtrlRegs.GPADIR.bit.GPIO11 = 0; // DIP Switch_1 (입력)
+    GpioCtrlRegs.GPADIR.bit.GPIO10 = 0; // DIP Switch_2 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO55 = 0; // DIP Switch_3 (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO41 = 0; // DIP Switch_4 (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO53 = 0; // 외부 센싱 1 (입력)
-    GpioCtrlRegs.GPBDIR.bit.GPIO54 = 0; // 외부 스위치 (입력)
-    GpioCtrlRegs.GPBDIR.bit.GPIO55 = 0; // DIP Switch_3 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 0; // 외부 센싱 2 (DAB_OK) (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 0; // 외부 센싱 3 (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO54 = 0; // 외부 스위치 (Run Switch) (입력)
 
     // GPIO 핀 기능 설정 (MUX = 0: GPIO 모드, MUX = 1: 주변장치 모드)
     // SPI 관련
@@ -246,16 +245,16 @@ void gpio_config(void)
     GpioCtrlRegs.GPAMUX1.bit.GPIO14 = 0; // EEPROM WP (GPIO 모드)
 
     // DIP 스위치 (GPIO 모드)
-    GpioCtrlRegs.GPAMUX1.bit.GPIO10 = 0; // DIP Switch_2
     GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0; // DIP Switch_1
-    GpioCtrlRegs.GPBMUX1.bit.GPIO41 = 0; // DIP Switch_4
+    GpioCtrlRegs.GPAMUX1.bit.GPIO10 = 0; // DIP Switch_2
     GpioCtrlRegs.GPBMUX2.bit.GPIO55 = 0; // DIP Switch_3
+    GpioCtrlRegs.GPBMUX1.bit.GPIO41 = 0; // DIP Switch_4
 
     // 외부 신호 입력 (GPIO 모드)
     GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0; // 외부 센싱 1
     GpioCtrlRegs.GPBMUX1.bit.GPIO39 = 0; // 외부 센싱 2 (DAB_OK)
     GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0; // 외부 센싱 3
-    GpioCtrlRegs.GPBMUX2.bit.GPIO54 = 0; // 외부 스위치 (Start/Stop)
+    GpioCtrlRegs.GPBMUX2.bit.GPIO54 = 0; // 외부 스위치 (Run Switch)
 
     // 출력 신호 (GPIO 모드)
     GpioCtrlRegs.GPAMUX2.bit.GPIO17 = 0; // Buck Enable
@@ -280,7 +279,7 @@ void gpio_config(void)
     GpioCtrlRegs.GPAQSEL1.bit.GPIO10 = 2; // DIP Switch_2 (6 sample qualification)
     GpioCtrlRegs.GPBQSEL2.bit.GPIO55 = 2; // DIP Switch_3 (6 sample qualification)
     GpioCtrlRegs.GPBQSEL1.bit.GPIO41 = 2; // DIP Switch_4 (6 sample qualification)
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2; // Start/Stop Switch (6 sample qualification)
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2; // Run Switch (6 sample qualification)
 
     // Pull-up 설정 (DIP 스위치들은 외부 풀업 사용으로 비활성화)
     GpioCtrlRegs.GPAPUD.bit.GPIO10 = 1; // DIP Switch_2 pull-up 비활성화
@@ -290,7 +289,7 @@ void gpio_config(void)
 
     // Input Qualification 설정 (노이즈 필터링)
     GpioCtrlRegs.GPBCTRL.bit.QUALPRD2 = 0xFF; // Qualification 주기 = SYSCLKOUT/510
-    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;     // GPIO54: 6 샘플 필터링
+    GpioCtrlRegs.GPBQSEL2.bit.GPIO54 = 2;     // GPIO54(Run Switch): 6 샘플 필터링
 
     EDIS;
 }

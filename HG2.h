@@ -79,6 +79,11 @@
 #define DISCHARGE_FET_ON() (GpioDataRegs.GPADAT.bit.GPIO19 = 0)   ///< 방전 FET 켜기 (Active Low)
 #define DISCHARGE_FET_OFF() (GpioDataRegs.GPADAT.bit.GPIO19 = 1)  ///< 방전 FET 끄기 (Active Low)
 
+// DAB (Dual Active Bridge) 상태 매크로
+#define DAB_OK_READ() (GpioDataRegs.GPBDAT.bit.GPIO39)             ///< DAB_OK 신호 읽기 (1: OK, 0: Fault)
+#define IS_DAB_OK() (GpioDataRegs.GPBDAT.bit.GPIO39 == 1)         ///< DAB 정상 상태 확인
+#define IS_DAB_FAULT() (GpioDataRegs.GPBDAT.bit.GPIO39 == 0)      ///< DAB 폴트 상태 확인
+
 #define LED2_ON() (GpioDataRegs.GPBSET.bit.GPIO57 = 1)            ///< LED2 켜기
 #define LED2_OFF() (GpioDataRegs.GPBCLEAR.bit.GPIO57 = 1)         ///< LED2 끄기
 #define LED2_TOGGLE() (GpioDataRegs.GPBTOGGLE.bit.GPIO57 = 1)     ///< LED2 토글
@@ -119,6 +124,16 @@ typedef enum
     STATE_STOP = 0,   ///< 시스템 정지
     STATE_RUNNING = 1 ///< 시스템 운전
 } SYSTEM_STATE;
+
+/**
+ * @brief DAB 하드웨어 폴트 상태 열거형
+ * @details DAB_OK 신호 기반 하드웨어 폴트 상태 관리
+ */
+typedef enum
+{
+    DAB_STATUS_OK = 0,     ///< DAB 정상 상태
+    DAB_STATUS_FAULT = 1   ///< DAB 폴트 상태
+} DAB_FAULT_STATUS;
 
 /**
  * @brief 충전/방전 모드 열거형
@@ -340,9 +355,25 @@ Uint32 control_phase = 0; ///< 100kHz → 20kHz 분주 카운터 (0~4)
 // System Flags
 Uint16 parse_mb_flag = 0; ///< Modbus 파싱 플래그 (10ms 주기)
 
-// Hardware Status Flags
-Uint16 dab_ok_fault = 0; ///< DAB 폴트 상태
-Uint16 dab_ok = 0;       ///< DAB OK 상태
+/** @} */
+
+//=============================================================================
+// 8. HARDWARE FAULT AND SAFETY VARIABLES
+//=============================================================================
+/**
+ * @defgroup Hardware_Safety_Variables 하드웨어 안전 관련 변수
+ * @brief 하드웨어 폴트 감지 및 안전 제어 관련 변수들
+ * @{
+ */
+
+// Hardware Fault Detection
+Uint16 hw_fault = 0;                ///< 통합 하드웨어 폴트 플래그 (0: OK, 1: Fault)
+DAB_FAULT_STATUS dab_fault_current = DAB_STATUS_OK;  ///< 현재 DAB 폴트 상태
+DAB_FAULT_STATUS dab_fault_previous = DAB_STATUS_OK; ///< 이전 DAB 폴트 상태 (연속 감지용)
+
+// Digital Input Status
+Uint16 run_switch = 0;              ///< 운전 스위치 상태 (GPIO54)
+Uint16 Board_ID = 0;                ///< 보드 ID (DIP 스위치 4비트)
 
 /** @} */
 
@@ -410,7 +441,22 @@ void Calc_V_fb_avg(void);  ///< 전압 평균 계산 (10000회 평균)
 /** @} */
 
 //-----------------------------------------------------------------------------
-// D. System Control Functions (시스템 제어 함수)
+// D. Hardware Safety Functions (하드웨어 안전 함수)
+//-----------------------------------------------------------------------------
+/**
+ * @defgroup Hardware_Safety_Functions 하드웨어 안전 함수
+ * @brief 하드웨어 폴트 감지 및 안전 제어 관련 함수들
+ * @{
+ */
+
+void ProcessDABFault(void);     ///< DAB 폴트 감지 및 처리 (연속 감지 방식)
+void ClearHardwareFaults(void); ///< 하드웨어 폴트 클리어 (운전 스위치 OFF 시)
+Uint16 IsSystemSafeToRun(void); ///< 시스템 운전 안전성 확인
+
+/** @} */
+
+//-----------------------------------------------------------------------------
+// E. System Control Functions (시스템 제어 함수)
 //-----------------------------------------------------------------------------
 /**
  * @defgroup System_Control_Functions 시스템 제어 함수
@@ -423,7 +469,7 @@ void ControlFanPwm(void); ///< 팬 PWM 제어 (온도 비례, 15~90%)
 /** @} */
 
 //-----------------------------------------------------------------------------
-// E. Communication Functions (통신 함수)
+// F. Communication Functions (통신 함수)
 //-----------------------------------------------------------------------------
 /**
  * @defgroup Communication_Functions 통신 함수
@@ -438,7 +484,7 @@ void modbus_parse(void);                    ///< Modbus 파싱 (외부 함수)
 /** @} */
 
 //-----------------------------------------------------------------------------
-// F. System Initialization Functions (시스템 초기화 함수)
+// G. System Initialization Functions (시스템 초기화 함수)
 //-----------------------------------------------------------------------------
 /**
  * @defgroup Init_Functions 시스템 초기화 함수
@@ -481,6 +527,18 @@ extern Uint32 V_cal_cnt; ///< 전압 계산 카운터
 // Control Variables
 //-----------------------------------------------------------------------------
 extern float32 I_cmd_PI; ///< PI 제어용 전류 지령값 (A)
+
+//-----------------------------------------------------------------------------
+// Hardware Safety Variables  
+//-----------------------------------------------------------------------------
+extern Uint16 hw_fault;                ///< 통합 하드웨어 폴트 플래그
+extern DAB_FAULT_STATUS dab_fault_current;  ///< 현재 DAB 폴트 상태
+extern DAB_FAULT_STATUS dab_fault_previous; ///< 이전 DAB 폴트 상태
+extern Uint16 run_switch;              ///< 운전 스위치 상태
+extern Uint16 Board_ID;                ///< 보드 ID (DIP 스위치)
+extern Uint16 can_report_flag;         ///< CAN 보고 플래그
+extern Uint16 can_report_counter;      ///< CAN 보고 타이밍 카운터
+extern Uint16 can_report_interval;     ///< CAN 보고 간격
 
 //-----------------------------------------------------------------------------
 // DCL Controller Variables

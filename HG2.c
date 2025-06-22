@@ -15,13 +15,33 @@
  * @section control_algorithm 제어 알고리즘
  * - **100kHz ePWM3 인터럽트**: 메인 제어 루프
  * - **20kHz 분주**: 5단계 순차 처리 (전압센싱, PI제어, 통신, 온도, 평균계산)
- * - **PI 제어**: 충전/방전 모드별 독립적인 PI 컨트롤러
+ * - **PI 제어**: DCL 라이브러리 기반 최적화된 PI 컨트롤러 (충전/방전 모드별)
  * - **소프트 스타트**: 전류 램프업을 통한 안전한 기동
+ * - **Protocol 제어**: EPC 명령에 따른 스텝별 전류/전압 제어
  *
  * @section communication 통신 시스템
- * - **Modbus RTU**: 제어 컴퓨터와의 명령/상태 통신 (38.4kbps)
- * - **CAN**: 슬레이브 모듈 피드백 수신 (500kbps)
- * - **RS485**: 슬레이브 전류 지령 브로드캐스팅 (5.625Mbps)
+ * - **Modbus RTU**: HMI와 RS232 통신 (38.4kbps, 8bit, 1stop, none, 100ms 폴링)
+ * - **CAN Protocol**: 외부 EPC 시스템과의 제어 통신 (500kbps, Protocol.md 규격)
+ * - **CAN Legacy**: 내부 슬레이브 1~9 피드백 수신 (1Mbps, CAN 2.0A, MBOX0~9)
+ * - **RS485**: 슬레이브 전류 지령 전송 (5.625Mbps, 0.1ms마다 9byte, 마스터-슬레이브 동일 프로세서로 baud 에러 없음)
+ * 
+ * @section can_dual_system CAN 이중 통신 체계
+ * **[새로운 Protocol 통신 - 500kbps]**
+ * - **용도**: 외부 EPC(상위 제어 시스템)와의 표준 프로토콜 통신
+ * - **속도**: 500kbps (외부 시스템 요구사항에 맞춤)
+ * - **구조**: Protocol.md 규격 기반 (100번대 보고, 200번대 명령, 2200번대 ACK)
+ * - **기능**: 스텝 제어, 상태 보고, 안전 조건 관리, Heart Beat
+ * 
+ * **[기존 Legacy 통신 - 1Mbps]**  
+ * - **용도**: 내부 슬레이브 모듈 1~9와의 피드백 수신 (기존 30kW 방식 유지)
+ * - **속도**: 1Mbps (내부 통신이므로 우리가 조절 가능)
+ * - **구조**: MBOX0~9 (마스터 0xF0, 슬레이브 0xF1~0xF9)
+ * - **기능**: 전류 피드백, 온도 모니터링, 폴트 상태 수신
+ * 
+ * @section can_coexistence CAN 공존 방식
+ * - **단일 CAN 버스**: F28069는 CAN 컨트롤러 1개만 지원
+ * - **Protocol 우선**: 500kbps로 설정하여 외부 시스템과 호환
+ * - **Legacy 적응**: 기존 슬레이브들도 500kbps로 변경 필요 (내부 조절 가능)
  *
  * @section safety_features 안전 기능
  * - 과전압 보호 (1100V 이상)
@@ -39,6 +59,21 @@
  * @note 이 파일은 TI F28069 마이크로컨트롤러용으로 작성되었습니다.
  *       DCL 라이브러리를 사용한 최적화된 PI 제어기를 포함합니다.
  * 
+ * @section hardware_specs 하드웨어 사양
+ * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz (90MHz/8)
+ * - **SPI**: 11.25MHz (ADC/DAC 통신용)
+ * - **전류 센서**: ADC 3V → 4095, 0A=1.5V(2048), +100A=3V(4095), -100A=0V(0)
+ * - **온도 센서**: 12비트 ADC, 기준전압 3V, 기울기 20.4mV/℃, 오프셋 1.4℃
+ * - **DAC**: 12비트, 0A=2000, +80A=4000, -80A=0 (방전/회생 모드)
+ * 
+ * @section pin_mapping 핀 매핑 정보
+ * - **LED**: LED11(GPIO31), LED12(GPIO32), LED13(GPIO33)
+ * - **ADC**: ADC0(온도센서), ADC1(전류센서 ±100A)
+ * - **EEPROM**: SDA(GPIO32), SCL(GPIO33), WP(GPIO14) - 24LC128
+ * - **SPI**: SCLK(GPIO18), MISO(GPIO3), CS(GPIO44) - ADC/DAC 통신
+ * - **DIP 스위치**: GPIO5~8 (CAN ID 설정용)
+ * - **통신**: RS232(SCI-A), RS485(SCI-B), CAN(eCAN-A)
+ * 
  * @history
  * - v1.0: 김은규 - 초기 개발 (기본 제어 로직, Modbus 통신)
  * - v2.0: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
@@ -48,15 +83,47 @@
  * 미완료 작업 (우선순위별)
  *===========================================================================
  * [우선순위 중]
- * - 슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
- * - 슬레이브에서 마스터의 485 수신 실패 시 CAN 폴트 전송
+ * - Protocol 통신: EPC Heart Beat 타임아웃 처리 및 안전 모드 전환
+ * - Legacy 통신: 슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
+ * - Legacy 통신: 슬레이브에서 마스터의 485 수신 실패 시 CAN 폴트 전송
+ * - 통신 폴트 발생 시 처리 및 경고 표시
  *
  * [우선순위 저]
- * - 리셋 후 초기 FAN 미동작 원인 검토
+ * - 리셋 후 초기 FAN 미동작 원인 검토 (FAN PWM Duty 0.15 고정 문제)
  * - 터미널에 전류값 소수점 표시
- * - SCI 에러 처리: if(SciaRegs.SCIRXST.bit.PE) // 패리티 에러 등
- * - 에러 발생 시 카운트하여 저장
+ * - SCI 에러 처리: if(SciaRegs.SCIRXST.bit.PE) // 패리티/프레이밍/오버런 에러 등
+ * - 에러 발생 시 카운트하여 저장 (SCIRXST 레지스터 활용)
  * - Flash vs RAM 실행시간 비교 분석
+ * - Run 신호 특정값 사용: Run=0xA0, Stop=0x00 (슬레이브 호환성)
+ * 
+ * @section can_bus_load CAN 버스 로드율 분석 (Legacy 1Mbps 기준)
+ * - 1 Frame = 130bit, 전송시간 = 130us (1000kbps에서 1bit = 1us)
+ * - 1ms 주기: 130/1000 = 13% 로드 (1kHz)
+ * - 0.2ms 주기: 130/200 = 65% 로드 (5kHz)
+ * - 0.1ms 주기: 130/100 = 130% (불가능, 10kHz)
+ * - 실제 측정: 25kHz 전송 → 0.15ms 간격 수신 확인
+ * 
+ * @section can_frequency_table CAN 주파수별 로드율 실측 데이터 (Legacy 통신)
+ * | 분주값 | 주파수 | 주기 | 로드율 | 실측 수신간격 |
+ * |--------|--------|------|--------|---------------|
+ * | 100    | 1kHz   | 1ms  | 13%    | 1ms           |
+ * | 50     | 2kHz   | 0.5ms| 26%    | 0.5ms         |
+ * | 10     | 10kHz  | 0.1ms| 130%   | 0.22ms (지연) |
+ * | 5      | 20kHz  | 0.05ms| 260%  | 불안정        |
+ * | 4      | 25kHz  | 0.04ms| 325%  | 0.4ms (대폭지연)|
+ * 
+ * @section protocol_timing Protocol 통신 타이밍 (500kbps 기준)
+ * - **동작 중 보고**: 100번대 ID, 10ms 주기, 8개 메시지 연속 전송
+ * - **대기 중 보고**: 110번대 ID, 100ms 주기, 8개 메시지 연속 전송  
+ * - **명령 수신**: 200번대 ID (스텝 명령), 210번 ID (제어 명령)
+ * - **응답 전송**: 2200번대 ID (ACK), 130번대 ID (종료 보고)
+ * - **Heart Beat**: 360번 ID, 100ms 주기 (EPC → 모듈)
+ * 
+ * @section sci_error_handling SCI 에러 처리 방법
+ * - **RXERR INT ENA** (SCICTL1 비트6): 수신 오류 인터럽트 활성화
+ * - **SCIRXST 레지스터**: 중단감지, 프레이밍, 오버런, 패리티 오류 확인
+ * - **SW RESET**: SCICTL1 레지스터로 오류 플래그 삭제
+ * - **중단 감지 시**: SCI 데이터 수신 중지, SW RESET으로 재시작 필요
  */
 
 // ###########################################################################
@@ -153,7 +220,7 @@ Uint16 timer_10ms = 0;
 // ADC 및 기본 설정
 const float32 V_ref = 5.0f;
 
-Uint16 hw_fault = 0, gpio_dab_fault = 0, gpio_dab_fault_prev = 0;
+// 하드웨어 안전 관련 변수들은 HG2.h에서 선언됨
 
 /**
  * @brief 메인 함수 - 시스템 초기화 및 메인 루프
@@ -173,8 +240,11 @@ Uint16 hw_fault = 0, gpio_dab_fault = 0, gpio_dab_fault_prev = 0;
  * @section main_loop 메인 루프 처리 내용
  * - SCI FIFO 오버플로우 처리
  * - Modbus 폴링 (필수 호출)
- * - CAN 보고 처리 (Protocol 시스템)
- * - CAN 송수신 처리 (슬레이브 피드백, 1kHz)
+ * - **Protocol 시스템**: EPC와의 CAN 통신 처리 (500kbps)
+ *   - Heart Beat 타임아웃 검사
+ *   - 명령 수신 및 ACK 처리  
+ *   - 상태 보고 (10ms/100ms 주기)
+ * - **Legacy CAN**: 슬레이브 1~9 피드백 수신 (500kbps 적응)
  * - Modbus 데이터 파싱 (20kHz → 100Hz)
  * - 워치독 서비스
  */
@@ -389,43 +459,43 @@ void main(void)
         // Modbus 폴링 (필수 호출)
         (void)eMBPoll();
 
-        // CAN 보고 처리
+        // Protocol CAN 보고 처리 (EPC 시스템과의 통신)
         if (can_report_flag == 1)
         {
             can_report_flag = 0;
-            SendCANReport(16);
+            SendCANReport(16); // Protocol.md 규격에 따른 상태 보고 (100번대/110번대)
         }
 
-        // CAN 송수신 처리 (1kHz)
+        // Legacy CAN 송수신 처리 (슬레이브 1~9 피드백, 1kHz)
         if (can_tx_flag == 1)
         {
             Uint32 rmp_status;
             can_tx_flag = 0;
 
-            // 운전 상태에 따른 CAN 메시지 설정
+            // Legacy 운전 상태에 따른 CAN 메시지 설정 (30kW 호환)
             if (system_state == STATE_RUNNING)
-                ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0;
+                ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0; // 운전 신호 (0xA0)
             else
-                ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;
+                ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0;    // 정지 신호 (0x00)
 
-            ECanaRegs.CANTRS.all = 0x00000001; // 전송 요청
+            ECanaRegs.CANTRS.all = 0x00000001; // MBOX0 전송 요청 (마스터 → 슬레이브)
 
-            // CAN 메일박스 상태 읽기 (성능 최적화)
-            rmp_status = ECanaRegs.CANRMP.all & 0x000003FE; // MBOX1~9
+            // Legacy CAN 메일박스 상태 읽기 (성능 최적화)
+            rmp_status = ECanaRegs.CANRMP.all & 0x000003FE; // MBOX1~9 (슬레이브 피드백)
 
-            // 슬레이브 모듈별 전류값 수신 처리 (배열에 직접 저장)
+            // Legacy 슬레이브 모듈별 전류값 수신 처리 (배열에 직접 저장)
             for (i = 1; i <= 9; i++)
             {
                 if (rmp_status & (1 << i))
                 {
-                    // CAN 데이터 수신됨 (배열에 직접 저장)
+                    // Legacy CAN 데이터 수신됨 (슬레이브 전류 피드백)
                     I_fb_array[i].u = mbox_array[i].MDL.all;
                     ECanaRegs.CANRMP.all = ((Uint32)1 << i); // 해당 비트만 클리어
                     can_rx_fault_cnt[i] = 0;
                 }
                 else
                 {
-                    // CAN 데이터 수신 안됨 (타임아웃 처리)
+                    // Legacy CAN 데이터 수신 안됨 (타임아웃 처리)
                     if (can_rx_fault_cnt[i]++ >= 10000)
                     {
                         I_fb_array[i].u = 0;
@@ -434,7 +504,7 @@ void main(void)
                 }
             }
 
-            // 활성 모듈 개수 계산
+            // Legacy 활성 모듈 개수 계산 (슬레이브 1~9)
             for (i = 1; i < 10; i++)
             {
                 if (can_rx_fault_cnt[i] < 9999)
@@ -587,15 +657,15 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     }
 
     //=========================================================================
-    // 2. SPI ADC 데이터 처리
+    // 2. SPI ADC 데이터 처리 (전류 센서)
     //=========================================================================
     DAC1_DS();                     // DAC1_CS 비활성화
-    I_out_ADC = SpiaRegs.SPIRXBUF; // ADC 데이터 읽기
+    I_out_ADC = SpiaRegs.SPIRXBUF; // 16비트 SPI ADC 데이터 읽기 (전류 센서)
 
-    ADC1_CS(); // ADC1_CS 활성화 (컨버전 시작)
+    ADC1_CS(); // ADC1_CS 활성화 (컨버전 시작, 최소 700ns 후 읽기 가능)
     DAC1_CS(); // DAC1_CS 활성화
 
-    // ADC 데이터 누적 (평균 계산용)
+    // ADC 데이터 누적 (5회 평균 계산용, 100kHz → 20kHz)
     I_out_ADC_sum += I_out_ADC;
 
     //=========================================================================
@@ -617,11 +687,17 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     // Case 0: 전압 센싱 (20kHz)
     //---------------------------------------------------------------------
     case 0:
-        // ADC 평균값 계산 (5회 평균)
+        // ADC 평균값 계산 (5회 평균, 100kHz → 20kHz 데시메이션)
+        // 0.2 = 1/5 (5회 누적값의 평균)
         I_fb_array[0].f = I_out_ADC_avg = (float32)(I_out_ADC_sum * 0.2f);
-        I_out_ADC_sum = 0;
+        I_out_ADC_sum = 0; // 누적값 초기화
 
         // 전압 센싱 및 스케일링
+        // ADC → 전압 변환: V_ref * ADC_value * (1/65536) - offset = 실제 전압
+        // 0.0000152 = 1/65536 (16비트 ADC 정규화)
+        // 0.1945 = ADC 오프셋 보정값
+        // 250 = 전압 분배비 (실제 전압/센싱 전압)
+        // 1.04047 = 하드웨어 보정계수 (1/0.9611, 실측 캘리브레이션 값)
         V_fb = V_out = (V_ref * (float32)V_out_ADC * 0.0000152f - 0.1945f) * 250.0f * 1.04047f; // 보정계수 적용 및 제어기용 전압값 설정
 
         control_phase++;
@@ -665,34 +741,40 @@ __interrupt void epwm3_isr(void) //100kHz 호출
             I_cmd_control_output = I_cmd_PI;
 
         // 소프트 스타트 처리
+        // 0.00005 = 램프업 기울기 (80A/1.6초, 50us마다 0.004A 증가)
         I_ss += I_MAX * 0.00005f;
         if (I_ss > I_MAX)
-            I_ss = I_MAX;
+            I_ss = I_MAX; // 최대 전류로 제한
 
         // 방전 FET 제어 (system_state에 따른 1초 지연)
         if (system_state == STATE_STOP)
         {
-            I_ss = 0;
+            I_ss = 0; // 소프트 스타트 리셋
         }
 
         if (system_state == STATE_RUNNING)
         {
+            // 20000 = 1초 지연 (20kHz × 1초)
             if (discharge_fet_delay_cnt++ >= 20000)
-            { // 1초 후 방전 FET OFF
-                discharge_fet_delay_cnt = 20000;
+            { // 운전 시작 1초 후 방전 FET OFF (안전성 확보)
+                discharge_fet_delay_cnt = 20000; // 카운터 포화 방지
                 DISCHARGE_FET_OFF(); // 방전 FET 끄기
             }
         }
         else
         {
-            discharge_fet_delay_cnt = 0;
-            DISCHARGE_FET_ON(); // 방전 FET 켜기 (지연 없음)
+            discharge_fet_delay_cnt = 0; // 카운터 리셋
+            DISCHARGE_FET_ON(); // 방전 FET 켜기 (즉시, 지연 없음)
         }
 
         // DAC 출력값 계산 및 제한
+        // 25.0 = 전류→DAC 스케일링 팩터 (50 * 0.5, 원본: I_com_set * 50 * 0.5f)
+        // 2000 = DAC 제로점 (0A 지령 시 DAC 출력값)
+        // 1.0005 = DAC 보정계수 (하드웨어 캘리브레이션)
+        // 방전 모드(+80A): DAC 4000, 회생 모드(-80A): DAC 0
         I_cmd_DAC = (I_cmd_control_output * 25.0f + 2000.0f) * 1.0005f;
         if (I_cmd_DAC > 4095)
-            I_cmd_DAC = 4095; // DAC 상한 제한
+            I_cmd_DAC = 4095; // DAC 상한 제한 (12비트)
 
         // RS485 통신 데이터 준비 및 전송
         gSciTxBuf[1] = (UCHAR)(I_cmd_DAC & 0x00FF);
@@ -707,8 +789,8 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         if (V_out >= OVER_VOLTAGE)
             over_voltage_flag = 1;
 
-        // 운전 조건 확인 (하드웨어 폴트, 과전압, 운전 스위치 입력)
-        if (hw_fault == 0 && over_voltage_flag == 0 && run_switch == 1)
+        // 시스템 안전성 확인 및 운전 상태 결정
+        if (IsSystemSafeToRun())
         {
             system_state = STATE_RUNNING;
             BUCK_ENABLE(); // Buck 컨버터 활성화
@@ -727,8 +809,11 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     //---------------------------------------------------------------------
     case 3:
         // 온도 센서 처리
+        // 4095 = 12비트 ADC 최대값, 3.0 = ADC 기준전압 (3V)
         temp_ADC_fb = (float32)(temp_ADC / 4095.0f * 3.0f);
+        // 5/3 = 온도센서 전압 증폭비 복원 (하드웨어 전압분배)
         temp_ADC_fb_alt = (float32)(temp_ADC_fb * 5.0f / 3.0f); // 전압 변환
+        // 20.4 = 온도센서 기울기(mV/℃), 1.4 = 오프셋 온도(℃)
         temp_in = (float32)((temp_ADC_fb_alt * 20.4f) + 1.4f);  // 온도 변환
 
         // 전압 평균값 계산
@@ -776,20 +861,20 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         control_phase = 0;
 
     //=========================================================================
-    // 4. 하드웨어 폴트 감지 (GPIO 기반)
+    // 4. 하드웨어 안전 처리 (DAB 폴트 감지 및 시스템 안전성 확인)
     //=========================================================================
-    gpio_dab_fault_prev = gpio_dab_fault;
-    gpio_dab_fault = !GpioDataRegs.GPBDAT.bit.GPIO39; // DAB_OK 신호 반전
-
-    if (gpio_dab_fault == 1 && gpio_dab_fault_prev == 1)
-        hw_fault = 1; // 연속 폴트 감지
-    else if (run_switch == 0)
-        hw_fault = 0; // 스위치 OFF시 폴트 해제
+    // DAB 폴트 감지 (연속 2회 감지 방식)
+    ProcessDABFault();
+    
+    // 운전 스위치 OFF 시 모든 폴트 클리어
+    if (run_switch == 0)
+        ClearHardwareFaults();
 
     //=========================================================================
     // 5. DAC 출력 및 SPI 정리
     //=========================================================================
     // DAC1 A채널에 전류 지령 출력 (12비트, 0~4095)
+    // 0xC000 = DAC1 A채널 쓰기 명령, 증폭 관련 스케일 저항은 0.1% 급 정밀도 필요
     SpiaRegs.SPITXBUF = 0xC000 | (I_cmd_DAC & 0xFFF);
 
     ADC1_DS(); // ADC1_CS 비활성화
@@ -1208,15 +1293,17 @@ void ParseModbusData(void)
 void Calc_I_fb_avg(void)
 {
     // ADC 값을 실제 전류값으로 변환하여 직접 누적
-    // ADC 3V -> 4095, 0A : 1.5V, +100A : 3V, -100A : 0V
+    // 전류 센서 스케일링: ADC 3V(4095) → 전류(A)
+    // 2048 = 0A 기준점 (1.5V), 0.048828125 = 100A/2048 (스케일링 팩터)
+    // 하드웨어 매핑: 0A=1.5V(2048), +100A=3V(4095), -100A=0V(0)
     I_fb_sum += (I_out_ADC_avg - 2048) * 0.048828125f; // 100 / 2048
 
-    // 10000번 평균 계산 완료 시 최종 평균값 저장
+    // 10000번 평균 계산 완료 시 최종 평균값 저장 (0.5초 주기)
     if (I_cal_cnt++ == 10000)
     {
-        I_fb_avg = I_fb_sum * 0.0001; // 10000번 평균
-        I_fb_sum = 0;
-        I_cal_cnt = 0;
+        I_fb_avg = I_fb_sum * 0.0001; // 0.0001 = 1/10000 (평균값 계산)
+        I_fb_sum = 0;  // 누적값 초기화
+        I_cal_cnt = 0; // 카운터 초기화
     }
 }
 
@@ -1271,13 +1358,16 @@ void Calc_V_fb_avg(void)
  */
 void ControlFanPwm(void)
 {
+    // 온도별 팬 PWM 듀티 계산: 36°C에서 20%, 52.4°C에서 100%
+    // 0.8 = 최대 가변범위(100%-20%), 0.2 = 최소 듀티(20%)
     fan_pwm_duty = 0.8 * (temp_in - 36) / (52.4f - 36) + 0.2;
 
     if (fan_pwm_duty < 0.15)
-        fan_pwm_duty = 0.15;
+        fan_pwm_duty = 0.15; // 최소 15%로 제한 (최소 회전 보장)
     else if (fan_pwm_duty > 0.9)
-        fan_pwm_duty = 0.9;
+        fan_pwm_duty = 0.9;  // 최대 90%로 제한 (과부하 방지)
 
+    // PWM 극성 반전: (1 - duty)로 설정
     EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k;
 }
 
@@ -1321,6 +1411,68 @@ __interrupt void ecan0_isr(void)
     }
 
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
+}
+
+//=============================================================================
+// 하드웨어 안전 함수들 (Hardware Safety Functions)
+//=============================================================================
+
+/**
+ * @brief DAB 폴트 감지 및 처리
+ * 
+ * @details 연속 2회 폴트 감지 시 하드웨어 폴트로 판정
+ * - DAB_OK 신호가 2회 연속 LOW일 때 폴트 확정
+ * - 디바운싱 효과로 노이즈에 의한 오동작 방지
+ * 
+ * @note 이 함수는 epwm3_isr에서 100kHz로 호출됨
+ */
+void ProcessDABFault(void)
+{
+    // 이전 상태 저장
+    dab_fault_previous = dab_fault_current;
+    
+    // 현재 DAB_OK 신호 읽기 및 상태 판정
+    if (IS_DAB_FAULT())
+        dab_fault_current = DAB_STATUS_FAULT;
+    else
+        dab_fault_current = DAB_STATUS_OK;
+    
+    // 연속 2회 폴트 감지 시 하드웨어 폴트 설정
+    if (dab_fault_current == DAB_STATUS_FAULT && 
+        dab_fault_previous == DAB_STATUS_FAULT)
+    {
+        hw_fault = 1; // 하드웨어 폴트 확정
+    }
+}
+
+/**
+ * @brief 하드웨어 폴트 클리어
+ * 
+ * @details 운전 스위치가 OFF될 때 모든 하드웨어 폴트를 클리어
+ * - 사용자가 의도적으로 시스템을 정지시킨 상황
+ * - 폴트 상태를 리셋하여 재시작 가능하도록 함
+ */
+void ClearHardwareFaults(void)
+{
+    hw_fault = 0;
+    dab_fault_current = DAB_STATUS_OK;
+    dab_fault_previous = DAB_STATUS_OK;
+}
+
+/**
+ * @brief 시스템 운전 안전성 확인
+ * 
+ * @details 시스템이 안전하게 운전 가능한 상태인지 확인
+ * @return 1: 운전 가능, 0: 운전 불가
+ * 
+ * @section safety_conditions 안전 조건
+ * - 하드웨어 폴트 없음 (hw_fault == 0)
+ * - 과전압 상태 아님 (over_voltage_flag == 0)  
+ * - 운전 스위치 ON (run_switch == 1)
+ */
+Uint16 IsSystemSafeToRun(void)
+{
+    return (hw_fault == 0 && over_voltage_flag == 0 && run_switch == 1) ? 1 : 0;
 }
 
 #endif // _MAIN_C_
