@@ -33,7 +33,7 @@
  * - **기능**: 스텝 제어, 상태 보고, 안전 조건 관리, Heart Beat
  * 
  * **[기존 Legacy 통신 - 1Mbps]**  
- * - **용도**: 내부 슬레이브 모듈 1~9와의 피드백 수신 (기존 30kW 방식 유지)
+ * - **용도**: 내부 슬레이브 모듈 1~9와의 피드백 수신 (Legacy 프로그램 방식 유지)
  * - **속도**: 1Mbps (내부 통신이므로 우리가 조절 가능)
  * - **구조**: MBOX0~9 (마스터 0xF0, 슬레이브 0xF1~0xF9)
  * - **기능**: 전류 피드백, 온도 모니터링, 폴트 상태 수신
@@ -472,7 +472,7 @@ void main(void)
             Uint32 rmp_status;
             can_tx_flag = 0;
 
-            // Legacy 운전 상태에 따른 CAN 메시지 설정 (30kW 호환)
+            // Legacy 운전 상태에 따른 CAN 메시지 설정 (Legacy 프로그램 호환)
             if (system_state == STATE_RUNNING)
                 ECanaMboxes.MBOX0.MDL.byte.BYTE0 = 0xA0; // 운전 신호 (0xA0)
             else
@@ -657,15 +657,19 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     }
 
     //=========================================================================
-    // 2. SPI ADC 데이터 처리 (전류 센서)
+    // 2. SPI ADC 데이터 처리 (전압 센서) 및 내장 ADC 데이터 처리 (전류 센서)
     //=========================================================================
     DAC1_DS();                     // DAC1_CS 비활성화
-    I_out_ADC = SpiaRegs.SPIRXBUF; // 16비트 SPI ADC 데이터 읽기 (전류 센서)
+    V_out_ADC = SpiaRegs.SPIRXBUF; // SPI ADC 데이터 읽기 (전압 센서)
 
     ADC1_CS(); // ADC1_CS 활성화 (컨버전 시작, 최소 700ns 후 읽기 가능)
     DAC1_CS(); // DAC1_CS 활성화
 
-    // ADC 데이터 누적 (5회 평균 계산용, 100kHz → 20kHz)
+    // SPI ADC 전압 데이터 누적 (5회 평균 계산용, 100kHz → 20kHz)
+    V_out_ADC_sum += V_out_ADC;
+    
+    // 내장 ADC 전류 데이터 누적 (5회 평균 계산용, 100kHz → 20kHz)
+    // 주의: I_out_ADC는 adc_isr에서 AdcResult.ADCRESULT1로부터 읽어옴
     I_out_ADC_sum += I_out_ADC;
 
     //=========================================================================
@@ -687,18 +691,17 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     // Case 0: 전압 센싱 (20kHz)
     //---------------------------------------------------------------------
     case 0:
-        // ADC 평균값 계산 (5회 평균, 100kHz → 20kHz 데시메이션)
-        // 0.2 = 1/5 (5회 누적값의 평균)
-        I_fb_array[0].f = I_out_ADC_avg = (float32)(I_out_ADC_sum * 0.2f);
-        I_out_ADC_sum = 0; // 누적값 초기화
-
-        // 전압 센싱 및 스케일링
+        // SPI ADC 전압 센싱 및 스케일링
+        // SPI ADC 평균값 계산 (5회 평균, 100kHz → 20kHz 데시메이션)
+        V_out_ADC_avg = (float32)(V_out_ADC_sum * 0.2f);
+        V_out_ADC_sum = 0; // 누적값 초기화
+        
         // ADC → 전압 변환: V_ref * ADC_value * (1/65536) - offset = 실제 전압
         // 0.0000152 = 1/65536 (16비트 ADC 정규화)
         // 0.1945 = ADC 오프셋 보정값
         // 250 = 전압 분배비 (실제 전압/센싱 전압)
         // 1.04047 = 하드웨어 보정계수 (1/0.9611, 실측 캘리브레이션 값)
-        V_fb = V_out = (V_ref * (float32)V_out_ADC * 0.0000152f - 0.1945f) * 250.0f * 1.04047f; // 보정계수 적용 및 제어기용 전압값 설정
+        V_fb = V_out = (V_ref * V_out_ADC_avg * 0.0000152f - 0.1945f) * 250.0f * 1.04047f; // 보정계수 적용 및 제어기용 전압값 설정
 
         control_phase++;
         break;
@@ -897,7 +900,7 @@ __interrupt void adc_isr(void)
 
     temp_ADC = AdcResult.ADCRESULT0;  // 온도 ADC 결과
     I_out_ADC = AdcResult.ADCRESULT1; // 전류 ADC 결과
-    V_out_ADC = AdcResult.ADCRESULT2; // 전압 ADC 결과
+    Bat_Mean = AdcResult.ADCRESULT2;  // 배터리 평균 전압 ADC 결과
 
     AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1;   // Clear ADCINT1 flag to reinitialize for next SOC
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1; // Acknowledge interrupt to PIE
@@ -1208,14 +1211,17 @@ void PIControlDCL(void)
 void ParseModbusData(void)
 {
     // C89 변수 선언
-    Uint16 i;
-    /* 송신 데이터 처리 */
-    I_fb_total.f = 0;
+    // Uint16 i;
+    // I_fb_total.f = 0;
     // 총 출력 전류 계산 (마스터 + 모든 슬레이브)
+    /*
     for (i = 0; i <= 9; i++)
     {
         I_fb_total.f += I_fb_array[i].f;
     }
+    */
+    I_fb_total.f = I_fb_avg;
+    /* 송신 데이터 처리 */
     // Modbus Input Register에 전류값 저장 (32bit float -> 2개 16bit)
     usRegInputBuf[4] = (Uint16)(I_fb_total.u);
     usRegInputBuf[5] = (Uint16)(I_fb_total.u >> 16);
@@ -1274,7 +1280,7 @@ void ParseModbusData(void)
 /**
  * @brief 전류 평균 계산
  *
- * @details SPI ADC로부터 읽은 전류값의 평균 계산 및 스케일링
+ * @details 내장 ADC로부터 읽은 전류값의 평균 계산 및 스케일링
  *
  * @section adc_conversion ADC 변환 사양
  * - **ADC 범위**: 0~4095 (12bit)
@@ -1283,20 +1289,25 @@ void ParseModbusData(void)
  * - **변환 공식**: (ADC - 2048) × (100/2048) = 실제 전류(A)
  *
  * @section averaging_process 평균 계산 과정
- * 1. **5회 평균**: SPI에서 읽은 5개 ADC 값의 평균 (100kHz → 20kHz)
+ * 1. **5회 평균**: 내장 ADC에서 읽은 5개 ADC 값의 평균 (100kHz → 20kHz)
  * 2. **스케일링**: ADC 값을 실제 전류값으로 변환
  * 3. **10000회 누적**: 모니터링용 장기 평균 계산
  * 4. **최종 평균**: 10000회 완료 시 I_fb_avg에 저장
  *
  * @note 이 함수는 epwm3_isr의 Case 4에서 20kHz로 호출됨
+ * @note Legacy 프로그램과 동일한 구조로 Case 4에서 전류 처리
  */
 void Calc_I_fb_avg(void)
 {
-    // ADC 값을 실제 전류값으로 변환하여 직접 누적
-    // 전류 센서 스케일링: ADC 3V(4095) → 전류(A)
-    // 2048 = 0A 기준점 (1.5V), 0.048828125 = 100A/2048 (스케일링 팩터)
-    // 하드웨어 매핑: 0A=1.5V(2048), +100A=3V(4095), -100A=0V(0)
-    I_fb_sum += (I_out_ADC_avg - 2048) * 0.048828125f; // 100 / 2048
+    // 내장 ADC 평균값 계산 (5회 평균, 100kHz → 20kHz 데시메이션)
+    I_out_ADC_avg = (float32)(I_out_ADC_sum * 0.2f); // 0.2 = 1/5
+    I_out_ADC_sum = 0; // 누적값 초기화
+
+    // 내장 ADC 전류값을 실제 전류로 변환 - Legacy 프로그램의 Io_sen_real과 동일
+    // ADC 매핑: 0A=2048(1.5V), +100A=4095(3V), -100A=0(0V)
+    // 변환 공식: (ADC - 2048) × (100/2048) = 실제 전류(A)
+    I_fb_array[0].f = (I_out_ADC_avg - 2048) * 0.048828125f; // 100 / 2048
+    I_fb_sum += I_fb_array[0].f; // 장기 평균용 누적
 
     // 10000번 평균 계산 완료 시 최종 평균값 저장 (0.5초 주기)
     if (I_cal_cnt++ == 10000)

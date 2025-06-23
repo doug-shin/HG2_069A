@@ -159,10 +159,12 @@ void InitEPwm3()
 /**
  * @brief ADC 초기화 설정
  * - SOC0: ADCINB0 (Ch8) - 온도 센서
- * - SOC1: ADCINB1 (Ch9) - 전류 센서
- * - SOC2: ADCINB2 (Ch10) - 전압 센서
+ * - SOC1: ADCINB1 (Ch9) - 전류 센서  
+ * - SOC2: ADCINB2 (Ch10) - 배터리 전압 센서 (Bat_Mean)
  * - 트리거: EPWM6A SOCA
  * - 샘플링: 7 ADC 클럭 사이클
+ * 
+ * @note 주 전압 센싱은 SPI ADC(SpiaRegs.SPIRXBUF)를 사용
  */
 void AdcSetup(void)
 {
@@ -180,7 +182,7 @@ void AdcSetup(void)
     // ADC 채널 매핑
     AdcRegs.ADCSOC0CTL.bit.CHSEL = 8;  // SOC0 -> ADCINB0 (온도)
     AdcRegs.ADCSOC1CTL.bit.CHSEL = 9;  // SOC1 -> ADCINB1 (전류)
-    AdcRegs.ADCSOC2CTL.bit.CHSEL = 10; // SOC2 -> ADCINB2 (전압)
+    AdcRegs.ADCSOC2CTL.bit.CHSEL = 10; // SOC2 -> ADCINB2 (배터리 전압)
 
     // 트리거 소스 선택 (Round-robin: SOC0 -> SOC1 -> SOC2)
     AdcRegs.ADCSOC0CTL.bit.TRIGSEL = 0x0F; // EPWM6A SOCA 트리거

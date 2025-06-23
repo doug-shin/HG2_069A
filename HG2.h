@@ -242,7 +242,9 @@ float32 V_min_lim = 0.0f; ///< 저전압 지령 (방전 모드용)
 float32 Bat_Mean = 0.0f;  ///< 배터리 평균 전압
 
 // Voltage Sensing and ADC
-volatile float32 V_out_ADC = 0.0f; ///< 전압 ADC 원시값
+volatile float32 V_out_ADC = 0.0f; ///< SPI ADC 전압 원시값 (SpiaRegs.SPIRXBUF)
+float32 V_out_ADC_avg = 0.0f;      ///< SPI ADC 전압 평균값 (5회 평균)
+Uint32 V_out_ADC_sum = 0;          ///< SPI ADC 전압 합계 (5회 평균용)
 float32 V_out = 0.0f;              ///< 출력 전압 (PI 제어용)
 float32 V_fb = 0.0f;               ///< 전압 피드백 (센싱용)
 
@@ -292,7 +294,7 @@ DCL_PI dcl_pi_discharge; ///< DCL 방전용 PI 컨트롤러
 DCL_CSS dcl_css_common;  ///< DCL 공통 지원 구조체
 
 // DCL Control Flags
-Uint16 use_dcl_controller = 0; ///< DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
+Uint16 use_dcl_controller = 1; ///< DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
 
 /** @} */
 
