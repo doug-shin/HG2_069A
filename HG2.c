@@ -155,26 +155,18 @@ void InitEPwm1(void);
 void InitEPwm3(void);
 void spi_init(void);
 void eCana_config(void);
-void stra_xmit(Uint8 *buff, Uint16 Length);
 
-#pragma CODE_SECTION(scia_txFifo_isr, "ramfuncs");
 #pragma CODE_SECTION(cpuTimer1ExpiredISR, "ramfuncs");
 #pragma CODE_SECTION(scibRxReadyISR, "ramfuncs");
 #pragma CODE_SECTION(scibTxEmptyISR, "ramfuncs");
-#pragma CODE_SECTION(cpu_timer0_isr, "ramfuncs");
-#pragma CODE_SECTION(cpu_timer2_isr, "ramfuncs");
 #pragma CODE_SECTION(ParseModbusData, "ramfuncs");
-#pragma CODE_SECTION(stra_xmit, "ramfuncs");
 #pragma CODE_SECTION(epwm3_isr, "ramfuncs");
 #pragma CODE_SECTION(ecan0_isr, "ramfuncs");
 #pragma CODE_SECTION(adc_isr, "ramfuncs");
 
-__interrupt void cpu_timer0_isr(void);
-__interrupt void cpu_timer2_isr(void);
 __interrupt void epwm1_isr(void);
 __interrupt void epwm3_isr(void);
 __interrupt void spi_isr(void);
-__interrupt void scia_txFifo_isr(void);
 __interrupt void ecan0_isr(void);
 __interrupt void adc_isr(void);
 
@@ -200,9 +192,9 @@ extern USHORT usRegHoldingBuf[REG_HOLDING_NREGS];
 #define STX (0x02) // Start of Text, 본문의 개시 및 정보 메세지 헤더의 종료를 표시
 #define ETX (0x03) // End of Text, 본문의 종료를 표시한다
 #define DLE (0x10) // Data link escape, 뒤따르는 연속된 글자들의 의미를 바꾸기 위해 사용, 주로 보조적 전송제어기능을 제공
-Uint16 gSciTxBuf[4] = {STX, 0, 0, ETX};
+// gSciTxBuf 배열 제거: 직접 SCI 레지스터에 쓰는 방식으로 최적화
 
-Uint16 cpu_timer0_cnt = 0, cpu_timer1_cnt = 0, cpu_timer2_cnt = 0;
+Uint16 cpu_timer1_cnt = 0;
 Uint16 spi_interrupt_cnt = 0;
 Uint32 epwm3_isr_cnt = 0;
 
@@ -323,7 +315,7 @@ void main(void)
     // 7. 타이머 초기화
     //=========================================================================
     InitCpuTimers();
-    ConfigCpuTimer(&CpuTimer2, 90, 50); // 20kHz 인터럽트
+    // CpuTimer2 제거: 사용되지 않는 인터럽트였음
 
     EALLOW;
     SysCtrlRegs.PCLKCR0.bit.TBCLKSYNC = 0; // 타이머 정지
@@ -342,8 +334,6 @@ void main(void)
     PieVectTable.SCIRXINTB = &scibRxReadyISR;
     PieVectTable.SCITXINTB = &scibTxEmptyISR;
     PieVectTable.TINT1 = &cpuTimer1ExpiredISR;
-    PieVectTable.TINT0 = &cpu_timer0_isr;
-    PieVectTable.TINT2 = &cpu_timer2_isr;
     PieVectTable.ECAN0INTA = &ecan0_isr;
     EDIS;
 
@@ -536,64 +526,10 @@ void main(void)
 } // 메인 함수 끝
 
 //=============================================================================
-// 유틸리티 함수
-//=============================================================================
-
-/**
- * @brief 문자열 전송 함수 (SCI-A, RS485)
- *
- * @param buff 전송할 데이터 버퍼
- * @param Length 전송할 데이터 길이
- *
- * @details RS485를 통한 슬레이브 전류 지령 브로드캐스팅
- *
- * @section rs485_communication RS485 통신 사양
- * - **속도**: 5.625Mbps
- * - **주기**: 0.1ms (10kHz)
- * - **데이터**: 4바이트 (STX, 전류지령 Low, 전류지령 High, ETX)
- * - **방식**: 브로드캐스팅 (모든 슬레이브가 동일한 지령 수신)
- *
- * @section data_format 데이터 포맷
- * - **STX (0x02)**: 시작 문자
- * - **Data Low**: 전류 지령 하위 바이트
- * - **Data High**: 전류 지령 상위 바이트
- * - **ETX (0x03)**: 종료 문자
- *
- * @note 이 함수는 epwm3_isr의 Case 2에서 20kHz로 호출됨
- */
-void stra_xmit(Uint8 *buff, Uint16 Length)
-{
-    Uint16 i;
-
-    for (i = 0; i < Length; i++)
-    {
-        SciaRegs.SCITXBUF = buff[i];
-        while (SciaRegs.SCICTL2.bit.TXRDY == 0)
-            ;
-    }
-}
-
-//=============================================================================
 // 인터럽트 서비스 루틴
 //=============================================================================
 
-/**
- * @brief CPU Timer 0 인터럽트 (100kHz)
- */
-__interrupt void cpu_timer0_isr(void)
-{
-    cpu_timer0_cnt++;
-    CpuTimer0Regs.TCR.bit.TIF = 1; // 인터럽트 플래그 클리어
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
-}
-
-/**
- * @brief CPU Timer 2 인터럽트 (50us, 20kHz)
- */
-__interrupt void cpu_timer2_isr(void)
-{
-    cpu_timer2_cnt++;
-}
+// cpu_timer0_isr, cpu_timer2_isr 제거: Dead Code였음 (PIE 인터럽트 비활성화)
 
 /**
  * @brief SPI 인터럽트 서비스 루틴
@@ -642,9 +578,6 @@ __interrupt void epwm1_isr(void)
  */
 __interrupt void epwm3_isr(void) //100kHz 호출
 {
-    // C89 변수 선언
-    Uint16 i;
-
     epwm3_isr_cnt++;
 
     //=========================================================================
@@ -710,16 +643,8 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     // Case 1: 통합 PI 제어 (충전/방전 자동 선택)
     //---------------------------------------------------------------------
     case 1:
-        // PI 제어기 선택 실행 (플래그에 따라 DCL 또는 기존 방식)
-        if (use_dcl_controller)
-        {
-            PIControlDCL(); // DCL 기반 최적화된 PI 제어 (권장)
-        }
-        else
-        {
-            PIControlUnified(); // 기존 PI 제어 (호환성용)
-        }
-
+        // PI 제어기 실행
+        PIControlDCL(); // DCL 기반 최적화된 PI 제어
         control_phase++;
         break;
 
@@ -727,27 +652,27 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     // Case 2: 전류 지령 처리 및 통신 (20kHz)
     //---------------------------------------------------------------------
     case 2:
-        // 전류 지령 제한 처리
+        // 소프트 스타트 제한 처리
         if (I_cmd > I_ss)
-            I_cmd_PI = I_ss;
+            I_cmd_ss = I_ss;
         else if (I_cmd < -I_ss)
-            I_cmd_PI = -I_ss;
+            I_cmd_ss = -I_ss;
         else
-            I_cmd_PI = I_cmd;
+            I_cmd_ss = I_cmd;
 
         // PI 출력 제한 적용
-        if (I_cmd_PI > V_max_control_output)
-            I_cmd_control_output = V_max_control_output;
-        else if (I_cmd_PI < V_min_control_output)
-            I_cmd_control_output = V_min_control_output;
+        if (I_cmd_ss > V_max_PI)
+            I_cmd_final = V_max_PI;
+        else if (I_cmd_ss < V_min_PI)
+            I_cmd_final = V_min_PI;
         else
-            I_cmd_control_output = I_cmd_PI;
+            I_cmd_final = I_cmd_ss;
 
         // 소프트 스타트 처리
         // 0.00005 = 램프업 기울기 (80A/1.6초, 50us마다 0.004A 증가)
-        I_ss += I_MAX * 0.00005f;
-        if (I_ss > I_MAX)
-            I_ss = I_MAX; // 최대 전류로 제한
+        I_ss += CURRENT_LIMIT * 0.00005f;
+        if (I_ss > CURRENT_LIMIT)
+            I_ss = CURRENT_LIMIT; // 최대 전류로 제한
 
         // 방전 FET 제어 (system_state에 따른 1초 지연)
         if (system_state == STATE_STOP)
@@ -775,18 +700,22 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         // 2000 = DAC 제로점 (0A 지령 시 DAC 출력값)
         // 1.0005 = DAC 보정계수 (하드웨어 캘리브레이션)
         // 방전 모드(+80A): DAC 4000, 회생 모드(-80A): DAC 0
-        I_cmd_DAC = (I_cmd_control_output * 25.0f + 2000.0f) * 1.0005f;
+        I_cmd_DAC = (I_cmd_final * 25.0f + 2000.0f) * 1.0005f;
         if (I_cmd_DAC > 4095)
             I_cmd_DAC = 4095; // DAC 상한 제한 (12비트)
 
-        // RS485 통신 데이터 준비 및 전송
-        gSciTxBuf[1] = (UCHAR)(I_cmd_DAC & 0x00FF);
-        gSciTxBuf[2] = (UCHAR)((I_cmd_DAC >> 8) & 0xFF);
-
-        for (i = 0; i < 4; i++)
-        {
-            SciaRegs.SCITXBUF = gSciTxBuf[i] & 0x00FF; // 모든 슬레이브로 전류 지령 전송
-        }
+        // RS485 통신 데이터 직접 전송 (전송 완료 대기 포함)
+        SciaRegs.SCITXBUF = STX;                               // 시작 문자 (0x02)
+        while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+        
+        SciaRegs.SCITXBUF = (I_cmd_DAC & 0xFF);              // 전류 지령 하위 바이트
+        while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+        
+        SciaRegs.SCITXBUF = ((I_cmd_DAC >> 8) & 0xFF);         // 전류 지령 상위 바이트
+        while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+        
+        SciaRegs.SCITXBUF = ETX;                               // 종료 문자 (0x03)
+        while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
 
         // 과전압 보호
         if (V_out >= OVER_VOLTAGE)
@@ -814,10 +743,8 @@ __interrupt void epwm3_isr(void) //100kHz 호출
         // 온도 센서 처리
         // 4095 = 12비트 ADC 최대값, 3.0 = ADC 기준전압 (3V)
         temp_ADC_fb = (float32)(temp_ADC / 4095.0f * 3.0f);
-        // 5/3 = 온도센서 전압 증폭비 복원 (하드웨어 전압분배)
-        temp_ADC_fb_alt = (float32)(temp_ADC_fb * 5.0f / 3.0f); // 전압 변환
-        // 20.4 = 온도센서 기울기(mV/℃), 1.4 = 오프셋 온도(℃)
-        temp_in = (float32)((temp_ADC_fb_alt * 20.4f) + 1.4f);  // 온도 변환
+        // 5/3 = 온도센서 전압 증폭비 복원, 20.4 = 온도센서 기울기(mV/℃), 1.4 = 오프셋 온도(℃)
+        temp_in = (float32)((temp_ADC_fb * 5.0f / 3.0f * 20.4f) + 1.4f); // 인라인 계산으로 최적화
 
         // 전압 평균값 계산
         Calc_V_fb_avg();
@@ -900,180 +827,11 @@ __interrupt void adc_isr(void)
 
     temp_ADC = AdcResult.ADCRESULT0;  // 온도 ADC 결과
     I_out_ADC = AdcResult.ADCRESULT1; // 전류 ADC 결과
-    Bat_Mean = AdcResult.ADCRESULT2;  // 배터리 평균 전압 ADC 결과
+    V_batt_avg = AdcResult.ADCRESULT2;  // 배터리 평균 전압 ADC 결과
 
     AdcRegs.ADCINTFLGCLR.bit.ADCINT1 = 1;   // Clear ADCINT1 flag to reinitialize for next SOC
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1; // Acknowledge interrupt to PIE
     return;
-}
-
-/**
- * @brief 고전압 PI 컨트롤러 (충전 모드용)
- *
- * @details 충전 모드(I_cmd >= 0)에서 사용되는 PI 제어기
- * - 고전압 지령(V_max_lim)과 실제 전압(V_out)의 차이를 PI 제어로 보상
- * - 출력은 양의 전류 지령으로 제한됨 (충전 방향)
- *
- * @section control_algorithm 제어 알고리즘
- * - **비례항**: Kp × (V_max_lim - V_out)
- * - **적분항**: Ki × Tsampl × ∑(V_max_lim - V_out)
- * - **출력 제한**: -2A ~ I_cmd_PI (전류 지령 상한)
- * - **Anti-windup**: 적분항 포화 방지
- *
- * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
- */
-void PIControlHigh(void)
-{
-    V_max_error = V_max_lim - V_out; // 고전압 에러 계산
-    V_max_kP_out = Kp * V_max_error; // P term (비례 제어)
-
-    kI_out_prev = Ki * Tsampl * V_max_error; // I term (적분 제어) Tsampl=50E-6 (50us)
-    V_max_kI_out = V_max_kI_out + kI_out_prev;
-
-    // 적분 출력 제한 (Anti-windup)
-    if (V_max_kI_out > I_cmd_PI)
-        V_max_kI_out = I_cmd_PI;
-    else if (V_max_kI_out < -2)
-        V_max_kI_out = -2;
-
-    // PI 출력 계산
-    V_max_control_output = V_max_kP_out + V_max_kI_out;
-
-    // PI 출력 제한
-    if (V_max_control_output > I_cmd_PI)
-        V_max_control_output = I_cmd_PI;
-    else if (V_max_control_output < -2)
-        V_max_control_output = -2;
-}
-
-/**
- * @brief 저전압 PI 컨트롤러 (방전 모드용)
- *
- * @details 방전 모드(I_cmd < 0)에서 사용되는 PI 제어기
- * - 저전압 지령(V_min_lim)과 실제 전압(V_out)의 차이를 PI 제어로 보상
- * - 출력은 음의 전류 지령으로 제한됨 (방전 방향)
- *
- * @section control_algorithm 제어 알고리즘
- * - **비례항**: Kp × (V_min_lim - V_out)
- * - **적분항**: Ki × Tsampl × ∑(V_min_lim - V_out)
- * - **출력 제한**: I_cmd_PI (전류 지령 하한) ~ 2A
- * - **Anti-windup**: 적분항 포화 방지
- *
- * @note 이 함수는 기존 호환성을 위해 유지되며, 새로운 통합 PI 제어기 사용 권장
- */
-void PIControlLow(void)
-{
-    V_min_error = V_min_lim - V_out; // 저전압 에러 계산
-    V_min_kP_out = Kp * V_min_error; // P term (비례 제어)
-
-    kI_out_prev = Ki * Tsampl * V_min_error; // I term (적분 제어) Tsampl=50E-6 (50us)
-    V_min_kI_out = V_min_kI_out + kI_out_prev;
-
-    // 적분 출력 제한 (Anti-windup)
-    if (V_min_kI_out > 2)
-        V_min_kI_out = 2;
-    else if (V_min_kI_out < I_cmd_PI)
-        V_min_kI_out = I_cmd_PI;
-
-    // PI 출력 계산
-    V_min_control_output = V_min_kP_out + V_min_kI_out;
-
-    // PI 출력 제한
-    if (V_min_control_output > 2)
-        V_min_control_output = 2;
-    else if (V_min_control_output < I_cmd_PI)
-        V_min_control_output = I_cmd_PI;
-}
-
-/**
- * @brief 통합 PI 제어 함수
- * 충전/방전 모드를 자동 선택하여 전압 제어 수행
- * 50% 계산량 절약 및 코드 중복 제거
- * 충전/방전별 독립적인 적분기 상태 유지로 bumpless transfer 구현
- */
-void PIControlUnified(void)
-{
-    float32 error, kp_out, pi_out;
-    float32 voltage_cmd, upper_limit, lower_limit;
-    static float32 ki_accumulator_charge = 0;    // 충전용 적분기 상태
-    static float32 ki_accumulator_discharge = 0; // 방전용 적분기 상태
-
-    if (I_cmd >= 0)
-    {
-        // =====================================================================
-        // 충전 모드 (I_cmd >= 0): 기존 PIControlHigh 로직
-        // =====================================================================
-        voltage_cmd = V_max_lim; // 고전압 지령
-        upper_limit = I_cmd_PI;  // 상한: 양의 전류 제한
-        lower_limit = -2;        // 하한: 최소 음의 값
-
-        // 기존 V_max_ 변수들 업데이트 (호환성 유지)
-        V_max_error = error = voltage_cmd - V_out;
-        V_max_kP_out = kp_out = Kp * error;
-
-        kI_out_prev = Ki * Tsampl * error;
-        ki_accumulator_charge += kI_out_prev;
-        V_max_kI_out = ki_accumulator_charge;
-
-        // 적분 출력 제한 (Anti-windup)
-        if (ki_accumulator_charge > upper_limit)
-            ki_accumulator_charge = upper_limit;
-        else if (ki_accumulator_charge < lower_limit)
-            ki_accumulator_charge = lower_limit;
-        V_max_kI_out = ki_accumulator_charge;
-
-        // PI 출력 계산 및 제한
-        V_max_control_output = pi_out = kp_out + ki_accumulator_charge;
-        if (pi_out > upper_limit)
-            V_max_control_output = upper_limit;
-        else if (pi_out < lower_limit)
-            V_max_control_output = lower_limit;
-
-        // 방전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        ki_accumulator_discharge = V_max_control_output - kp_out;
-        if (ki_accumulator_discharge > 2.0f)
-            ki_accumulator_discharge = 2.0f;
-        else if (ki_accumulator_discharge < I_cmd_PI)
-            ki_accumulator_discharge = I_cmd_PI;
-    }
-    else
-    {
-        // =====================================================================
-        // 방전 모드 (I_cmd < 0): 기존 PIControlLow 로직
-        // =====================================================================
-        voltage_cmd = V_min_lim; // 저전압 지령
-        upper_limit = 2;         // 상한: 최대 양의 값
-        lower_limit = I_cmd_PI;  // 하한: 음의 전류 제한
-
-        // 기존 V_min_ 변수들 업데이트 (호환성 유지)
-        V_min_error = error = voltage_cmd - V_out;
-        V_min_kP_out = kp_out = Kp * error;
-
-        kI_out_prev = Ki * Tsampl * error;
-        ki_accumulator_discharge += kI_out_prev;
-        V_min_kI_out = ki_accumulator_discharge;
-
-        // 적분 출력 제한 (Anti-windup)
-        if (ki_accumulator_discharge > upper_limit)
-            ki_accumulator_discharge = upper_limit;
-        else if (ki_accumulator_discharge < lower_limit)
-            ki_accumulator_discharge = lower_limit;
-        V_min_kI_out = ki_accumulator_discharge;
-
-        // PI 출력 계산 및 제한
-        V_min_control_output = pi_out = kp_out + ki_accumulator_discharge;
-        if (pi_out > upper_limit)
-            V_min_control_output = upper_limit;
-        else if (pi_out < lower_limit)
-            V_min_control_output = lower_limit;
-
-        // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        ki_accumulator_charge = V_min_control_output - kp_out;
-        if (ki_accumulator_charge > I_cmd_PI)
-            ki_accumulator_charge = I_cmd_PI;
-        else if (ki_accumulator_charge < -2.0f)
-            ki_accumulator_charge = -2.0f;
-    }
 }
 
 //=============================================================================
@@ -1091,9 +849,9 @@ void InitDCLControllers(void)
     dcl_pi_discharge = (DCL_PI)PI_DEFAULTS;
 
     // 공통 지원 구조체 초기화
-    dcl_css_common.T = Tsampl; // 샘플링 시간 50us
-    dcl_css_common.err = 0;    // 에러 플래그 초기화
-    dcl_css_common.sts = 0;    // 상태 플래그 초기화
+    dcl_css_common.T = DCL_TSAMPL; // 샘플링 시간 50us
+    dcl_css_common.err = 0;        // 에러 플래그 초기화
+    dcl_css_common.sts = 0;        // 상태 플래그 초기화
 
     // 공통 지원 구조체 연결
     dcl_pi_charge.css = &dcl_css_common;
@@ -1102,22 +860,22 @@ void InitDCLControllers(void)
     //=========================================================================
     // 충전용 PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_charge.Kp = Kp;          // 비례 게인
-    dcl_pi_charge.Ki = Ki * Tsampl; // 적분 게인 (이산화)
-    dcl_pi_charge.Umax = I_MAX;     // 초기 상한값 (동적으로 변경됨)
-    dcl_pi_charge.Umin = -2.0f;     // 하한값
-    dcl_pi_charge.i10 = 0.0f;       // 적분기 상태 초기화
-    dcl_pi_charge.i6 = 1.0f;        // Anti-windup 상태 초기화
+    dcl_pi_charge.Kp = DCL_KP;                  // 비례 게인
+    dcl_pi_charge.Ki = DCL_KI * DCL_TSAMPL;     // 적분 게인 (이산화)
+    dcl_pi_charge.Umax = CURRENT_LIMIT;         // 초기 상한값 (동적으로 변경됨)
+    dcl_pi_charge.Umin = -2.0f;                 // 하한값
+    dcl_pi_charge.i10 = 0.0f;                   // 적분기 상태 초기화
+    dcl_pi_charge.i6 = 1.0f;                    // Anti-windup 상태 초기화
 
     //=========================================================================
     // 방전용 PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_discharge.Kp = Kp;          // 비례 게인
-    dcl_pi_discharge.Ki = Ki * Tsampl; // 적분 게인 (이산화)
-    dcl_pi_discharge.Umax = 2.0f;      // 상한값
-    dcl_pi_discharge.Umin = -I_MAX;    // 초기 하한값 (동적으로 변경됨)
-    dcl_pi_discharge.i10 = 0.0f;       // 적분기 상태 초기화
-    dcl_pi_discharge.i6 = 1.0f;        // Anti-windup 상태 초기화
+    dcl_pi_discharge.Kp = DCL_KP;               // 비례 게인
+    dcl_pi_discharge.Ki = DCL_KI * DCL_TSAMPL;  // 적분 게인 (이산화)
+    dcl_pi_discharge.Umax = 2.0f;               // 상한값
+    dcl_pi_discharge.Umin = -CURRENT_LIMIT;     // 초기 하한값 (동적으로 변경됨)
+    dcl_pi_discharge.i10 = 0.0f;                // 적분기 상태 초기화
+    dcl_pi_discharge.i6 = 1.0f;                 // Anti-windup 상태 초기화
 }
 
 /**
@@ -1128,8 +886,6 @@ void InitDCLControllers(void)
  */
 void PIControlDCL(void)
 {
-    float32_t pi_output;
-
     if (I_cmd >= 0)
     {
         // =====================================================================
@@ -1137,24 +893,23 @@ void PIControlDCL(void)
         // =====================================================================
 
         // 동적 상한값 업데이트 (전류 제한에 따라)
-        dcl_pi_charge.Umax = I_cmd_PI;
+        dcl_pi_charge.Umax = I_cmd_ss;
 
-        // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
-        pi_output = DCL_runPI_C1(&dcl_pi_charge, V_max_lim, V_out);
+        // DCL_runPI_C1 어셈블리 함수 실행 후 직접 할당 (최고 성능)
+        V_max_PI = DCL_runPI_C1(&dcl_pi_charge, V_max_lim, V_out);
 
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
         V_max_error = V_max_lim - V_out;               // 에러 계산
         V_max_kP_out = dcl_pi_charge.Kp * V_max_error; // 비례항
         V_max_kI_out = dcl_pi_charge.i10;              // 적분항 상태
-        V_max_control_output = pi_output;              // PI 출력
 
         // 방전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
         // 방전 모드로 전환될 때 급격한 출력 변화 방지
-        dcl_pi_discharge.i10 = pi_output - dcl_pi_discharge.Kp * (V_min_lim - V_out);
+        dcl_pi_discharge.i10 = V_max_PI - dcl_pi_discharge.Kp * (V_min_lim - V_out);
         if (dcl_pi_discharge.i10 > 2.0f)
             dcl_pi_discharge.i10 = 2.0f;
-        else if (dcl_pi_discharge.i10 < I_cmd_PI)
-            dcl_pi_discharge.i10 = I_cmd_PI;
+        else if (dcl_pi_discharge.i10 < I_cmd_ss)
+            dcl_pi_discharge.i10 = I_cmd_ss;
     }
     else
     {
@@ -1163,21 +918,20 @@ void PIControlDCL(void)
         // =====================================================================
 
         // 동적 하한값 업데이트 (전류 제한에 따라)
-        dcl_pi_discharge.Umin = I_cmd_PI;
+        dcl_pi_discharge.Umin = I_cmd_ss;
 
-        // DCL_runPI_C1 어셈블리 함수 실행 (최고 성능)
-        pi_output = DCL_runPI_C1(&dcl_pi_discharge, V_min_lim, V_out);
+        // DCL_runPI_C1 어셈블리 함수 실행 후 직접 할당 (최고 성능)
+        V_min_PI = DCL_runPI_C1(&dcl_pi_discharge, V_min_lim, V_out);
 
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
         V_min_error = V_min_lim - V_out;                  // 에러 계산
         V_min_kP_out = dcl_pi_discharge.Kp * V_min_error; // 비례항
         V_min_kI_out = dcl_pi_discharge.i10;              // 적분항 상태
-        V_min_control_output = pi_output;                 // PI 출력
 
         // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        dcl_pi_charge.i10 = pi_output - dcl_pi_charge.Kp * (V_max_lim - V_out);
-        if (dcl_pi_charge.i10 > I_cmd_PI)
-            dcl_pi_charge.i10 = I_cmd_PI;
+        dcl_pi_charge.i10 = V_min_PI - dcl_pi_charge.Kp * (V_max_lim - V_out);
+        if (dcl_pi_charge.i10 > I_cmd_ss)
+            dcl_pi_charge.i10 = I_cmd_ss;
         else if (dcl_pi_charge.i10 < -2.0f)
             dcl_pi_charge.i10 = -2.0f;
     }
@@ -1231,11 +985,11 @@ void ParseModbusData(void)
     usRegInputBuf[11] = (Uint16)(V_fb_avg.u >> 16);
 
     /* 수신 데이터 처리 */
-    // 시작/정지 명령 처리 (bit 3: SYSTEM_START, bit 4: SYSTEM_STOP)
-    if (usRegHoldingBuf[0] & (1U << 3))
-        system_state = STATE_RUNNING; // 시작
-    else if (usRegHoldingBuf[0] & (1U << 4))
-        system_state = STATE_STOP; // 정지
+    // 시작/정지 명령 처리 (정확한 값 매칭)
+    if (usRegHoldingBuf[0] == 0x08)      // 0x08 = 시작 명령
+        system_state = STATE_RUNNING;    // 시작
+    else if (usRegHoldingBuf[0] == 0x10) // 0x10 = 정지 명령
+        system_state = STATE_STOP;       // 정지
 
     // 충전/방전 모드 설정 (강제로 64 설정)
     usRegHoldingBuf[2] = 64; // 배터리 충전/방전 CC 모드 (64) 강제 설정
@@ -1270,11 +1024,11 @@ void ParseModbusData(void)
     }
 
     // 모듈 개수로 나눈 전류 지령 계산 및 제한 (-80A ~ +80A)
-    I_cmd = UI_I_cmd.f / MODULE_NUM;
-    if (I_cmd > I_MAX)
-        I_cmd = I_MAX;
-    else if (I_cmd < -I_MAX)
-        I_cmd = -I_MAX;
+    I_cmd = UI_I_cmd.f / MODULE_COUNT;
+    if (I_cmd > CURRENT_LIMIT)
+        I_cmd = CURRENT_LIMIT;
+    else if (I_cmd < -CURRENT_LIMIT)
+        I_cmd = -CURRENT_LIMIT;
 }
 
 /**

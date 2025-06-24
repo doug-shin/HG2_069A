@@ -160,7 +160,7 @@ void InitEPwm3()
  * @brief ADC 초기화 설정
  * - SOC0: ADCINB0 (Ch8) - 온도 센서
  * - SOC1: ADCINB1 (Ch9) - 전류 센서  
- * - SOC2: ADCINB2 (Ch10) - 배터리 전압 센서 (Bat_Mean)
+ * - SOC2: ADCINB2 (Ch10) - 배터리 전압 센서 (V_batt_avg)
  * - 트리거: EPWM6A SOCA
  * - 샘플링: 7 ADC 클럭 사이클
  * 

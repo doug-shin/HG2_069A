@@ -47,8 +47,8 @@
 //*****************************************************************************
 // System Constants and Configuration
 //*****************************************************************************
-#define I_MAX (80.0f)       ///< 최대 전류 제한값 (A)
-#define MODULE_NUM (1)      ///< 모듈 개수
+#define CURRENT_LIMIT (80.0f)       ///< 최대 전류 제한값 (A)
+#define MODULE_COUNT (1)      ///< 모듈 개수
 #define OVER_VOLTAGE (1100) ///< 과전압 보호 임계값 (V)
 
 //*****************************************************************************
@@ -201,9 +201,9 @@ Uint32 mainLoopCount = 0; ///< 메인 루프 카운터 (디버깅용)
  */
 
 // Current Commands and Control Outputs
-float32 I_cmd = 0.0f;                ///< 기본 전류 지령 (Modbus에서 수신)
-float32 I_cmd_PI = 0.0f;             ///< PI 제어용 중간 전류 지령값
-float32 I_cmd_control_output = 0.0f; ///< 최종 전류 지령값 (DAC 출력용)
+float32 I_cmd = 0.0f;      ///< 기본 전류 지령 (Modbus에서 수신)
+float32 I_cmd_ss = 0.0f;   ///< 소프트 스타트 제한 적용된 전류 지령
+float32 I_cmd_final = 0.0f; ///< 최종 전류 지령 (PI 제한 적용, DAC 출력용)
 
 // Current Sensing and ADC
 Uint16 I_out_ADC = 0;         ///< 현재 전류 ADC 값 (100kHz)
@@ -216,11 +216,7 @@ float32 I_fb_avg = 0.0f; ///< 전류 피드백 평균 (모니터링용)
 Uint16 I_cal_cnt = 0;    ///< 전류 계산 카운터
 
 // Soft Start Control
-float32 I_ss = 0.0f;          ///< 소프트 스타트 전류 제한
-float32 I_ss_prev = 0.0f;     ///< 이전 소프트 스타트 값
-float32 I_ss_prev2 = 0.0f;    ///< 이전 소프트 스타트 값 2
-float32 I_cmd_ss = 0.0f;      ///< 정상상태 전류 지령
-float32 I_cmd_ss_prev = 0.0f; ///< 이전 정상상태 전류 지령
+float32 I_ss = 0.0f; ///< 소프트 스타트 전류 제한
 
 // DAC Output
 Uint16 I_cmd_DAC = 0; ///< 전류 지령 DAC 값 (0~4095)
@@ -239,7 +235,7 @@ Uint16 I_cmd_DAC = 0; ///< 전류 지령 DAC 값 (0~4095)
 // Voltage Commands and Limits
 float32 V_max_lim = 0.0f; ///< 고전압 지령 (충전 모드용)
 float32 V_min_lim = 0.0f; ///< 저전압 지령 (방전 모드용)
-float32 Bat_Mean = 0.0f;  ///< 배터리 평균 전압
+float32 V_batt_avg = 0.0f;  ///< 배터리 평균 전압
 
 // Voltage Sensing and ADC
 volatile float32 V_out_ADC = 0.0f; ///< SPI ADC 전압 원시값 (SpiaRegs.SPIRXBUF)
@@ -257,8 +253,8 @@ float32 V_max_error = 0.0f; ///< 고전압 오차 (충전 모드)
 float32 V_min_error = 0.0f; ///< 저전압 오차 (방전 모드)
 
 // PI Control Outputs
-float32 V_max_control_output = 0.0f; ///< 고전압 PI 출력 (충전 모드)
-float32 V_min_control_output = 0.0f; ///< 저전압 PI 출력 (방전 모드)
+float32 V_max_PI = 0.0f; ///< 고전압 PI 출력 (충전 모드)
+float32 V_min_PI = 0.0f; ///< 저전압 PI 출력 (방전 모드)
 
 // Protection Flags
 Uint16 over_voltage_flag = 0; ///< 과전압 보호 플래그
@@ -269,32 +265,26 @@ Uint16 over_voltage_flag = 0; ///< 과전압 보호 플래그
 // 4. PI CONTROLLER PARAMETERS AND OUTPUTS
 //=============================================================================
 /**
- * @defgroup PI_Controller_Variables PI 제어기 관련 변수
- * @brief PI 제어기 파라미터, 출력, DCL 컨트롤러 관련 변수들
+ * @defgroup DCL_PI_Controller_Variables DCL PI 제어기 관련 변수
+ * @brief TI DCL 라이브러리 기반 최적화된 PI 제어기 관련 변수들
  * @{
  */
 
-// PI Control Parameters
-float32 Kp = 1.0f;       ///< 비례 게인
-float32 Ki = 3000.0f;    ///< 적분 게인
-float32 Tsampl = 50E-6f; ///< 샘플링 시간 (50us, 20kHz)
+// DCL PI Controllers (TI DCL Library) - 65% 성능 향상
+DCL_PI dcl_pi_charge;    ///< DCL 충전용 PI 컨트롤러 (V_max_lim 기준)
+DCL_PI dcl_pi_discharge; ///< DCL 방전용 PI 컨트롤러 (V_min_lim 기준)
+DCL_CSS dcl_css_common;  ///< DCL 공통 지원 구조체 (샘플링 시간, 에러 플래그)
 
-// PI Outputs - Proportional Terms
-float32 V_max_kP_out = 0.0f; ///< 고전압 비례 출력
-float32 V_min_kP_out = 0.0f; ///< 저전압 비례 출력
+// DCL Controller Parameters (초기화 시 설정)
+#define DCL_KP (1.0f)       ///< DCL PI 비례 게인
+#define DCL_KI (3000.0f)    ///< DCL PI 적분 게인  
+#define DCL_TSAMPL (50E-6f) ///< DCL 샘플링 시간 (50us, 20kHz)
 
-// PI Outputs - Integral Terms
-float32 kI_out_prev = 0.0f;  ///< 이전 적분 출력
-float32 V_max_kI_out = 0.0f; ///< 고전압 적분 출력
-float32 V_min_kI_out = 0.0f; ///< 저전압 적분 출력
-
-// DCL PI Controllers (TI DCL Library)
-DCL_PI dcl_pi_charge;    ///< DCL 충전용 PI 컨트롤러
-DCL_PI dcl_pi_discharge; ///< DCL 방전용 PI 컨트롤러
-DCL_CSS dcl_css_common;  ///< DCL 공통 지원 구조체
-
-// DCL Control Flags
-Uint16 use_dcl_controller = 1; ///< DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
+// Legacy 호환성 변수 (디버깅 및 모니터링용)
+float32 V_max_kP_out = 0.0f;     ///< 고전압 비례 출력 (모니터링용)
+float32 V_min_kP_out = 0.0f;     ///< 저전압 비례 출력 (모니터링용)
+float32 V_max_kI_out = 0.0f;     ///< 고전압 적분 출력 (모니터링용)
+float32 V_min_kI_out = 0.0f;     ///< 저전압 적분 출력 (모니터링용)
 
 /** @} */
 
@@ -311,11 +301,9 @@ Uint16 use_dcl_controller = 1; ///< DCL 제어기 사용 플래그 (0: 기존, 1
 volatile float32 temp_ADC = 0.0f; ///< 온도 ADC 원시값
 float32 temp_in = 0.0f;           ///< 실제 온도값 (°C)
 float32 temp_ADC_fb = 0.0f;       ///< 온도 ADC 피드백값
-float32 temp_ADC_fb_alt = 0.0f;   ///< 온도 ADC 보조값
 
 // Fan PWM Control
-float32 fan_pwm_duty = 0.15f;    ///< 팬 PWM 듀티 사이클 (15~90%)
-float32 fan_pwm_duty_tmp = 0.0f; ///< 팬 PWM 듀티 임시값
+float32 fan_pwm_duty = 0.15f; ///< 팬 PWM 듀티 사이클 (15~90%)
 
 /** @} */
 
@@ -393,12 +381,9 @@ Uint16 Board_ID = 0;                ///< 보드 ID (DIP 스위치 4비트)
  */
 
 __interrupt void adc_isr(void);             ///< ADC 변환 완료 인터럽트 (온도/전류/전압)
-__interrupt void cpu_timer0_isr(void);      ///< CPU Timer 0 인터럽트 (100kHz, 워치독)
-__interrupt void cpu_timer2_isr(void);      ///< CPU Timer 2 인터럽트 (저속 타이밍)
 __interrupt void epwm1_isr(void);           ///< ePWM1 인터럽트 (팬 PWM 제어)
 __interrupt void epwm3_isr(void);           ///< ePWM3 인터럽트 (100kHz, 메인 제어 루프)
 __interrupt void spi_isr(void);             ///< SPI 통신 완료 인터럽트
-__interrupt void scia_txFifo_isr(void);     ///< SCI-A 송신 FIFO 인터럽트 (RS485)
 __interrupt void ecan0_isr(void);           ///< CAN 인터럽트 (슬레이브 + Protocol)
 __interrupt void scibRxReadyISR(void);      ///< SCI-B 수신 인터럽트 (Modbus RTU)
 __interrupt void scibTxEmptyISR(void);      ///< SCI-B 송신 인터럽트 (Modbus RTU)
@@ -414,11 +399,6 @@ __interrupt void cpuTimer1ExpiredISR(void); ///< CPU Timer 1 인터럽트 (Modbu
  * @brief PI 제어 및 제어 알고리즘 관련 함수들
  * @{
  */
-
-// Traditional PI Controllers
-void PIControlHigh(void);    ///< 고전압 PI 컨트롤러 (충전 모드, I_cmd >= 0)
-void PIControlLow(void);     ///< 저전압 PI 컨트롤러 (방전 모드, I_cmd < 0)
-void PIControlUnified(void); ///< 통합 PI 컨트롤러 (충전/방전 자동 선택)
 
 // DCL-Based PI Controllers (TI DCL Library)
 void InitDCLControllers(void);                                   ///< DCL PI 컨트롤러 초기화
@@ -480,7 +460,6 @@ void ControlFanPwm(void); ///< 팬 PWM 제어 (온도 비례, 15~90%)
  */
 
 void ParseModbusData(void);                 ///< Modbus 데이터 파싱 (전류/전압 지령, 모드 설정)
-void stra_xmit(Uint8 *buff, Uint16 Length); ///< RS485 문자열 전송 (슬레이브 전류 지령)
 void modbus_parse(void);                    ///< Modbus 파싱 (외부 함수)
 
 /** @} */
@@ -528,7 +507,8 @@ extern Uint32 V_cal_cnt; ///< 전압 계산 카운터
 //-----------------------------------------------------------------------------
 // Control Variables
 //-----------------------------------------------------------------------------
-extern float32 I_cmd_PI; ///< PI 제어용 전류 지령값 (A)
+extern float32 I_cmd_ss;    ///< 소프트 스타트 제한 적용된 전류 지령 (A)
+extern float32 I_cmd_final; ///< 최종 전류 지령 (PI 제한 적용, A)
 
 //-----------------------------------------------------------------------------
 // Hardware Safety Variables  

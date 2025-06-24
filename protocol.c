@@ -8,7 +8,7 @@
 #define MODULE_CHANNEL 0x01 // 모듈 채널번호
 
 // 외부 모듈 변수 선언 (HG2.h에서 정의됨)
-extern float32 Bat_Mean;
+extern float32 V_batt_avg;
 extern float32 V_max_lim;
 extern float32 V_min_lim;
 extern float32 I_cmd;
@@ -148,8 +148,8 @@ void ProcessCANCommand(Uint32 isr_mbox, Uint32 ack_mbox)
             protocol.state_bits.bit.pwr_status = 1;
 
             // 전압 및 전류 설정
-            Bat_Mean = V_out_ADC;
-            V_max_lim = Bat_Mean;
+            V_batt_avg = V_out_ADC;
+            V_max_lim = V_batt_avg;
             V_min_lim = 0;
             I_cmd = 2;
             break;
@@ -576,10 +576,10 @@ void TransitionToRunning(void)
 
     // 단위 변환 및 안전 제한 (mA -> A, ±80A 제한)
     I_cmd = protocol.cmd_current * 0.001f; // mA -> A 변환
-    if (I_cmd > I_MAX)
-        I_cmd = I_MAX; // +80A 제한
-    else if (I_cmd < -I_MAX)
-        I_cmd = -I_MAX; // -80A 제한
+    if (I_cmd > CURRENT_LIMIT)
+        I_cmd = CURRENT_LIMIT; // +80A 제한
+    else if (I_cmd < -CURRENT_LIMIT)
+        I_cmd = -CURRENT_LIMIT; // -80A 제한
 
     // 🔧 CAN 전압 지령을 전압 제한값으로 설정 (배터리 보호용)
     if (protocol.cmd_voltage > 0)
