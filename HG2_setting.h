@@ -1,25 +1,29 @@
 /**
  * @file HG2_setting.h
- * @brief 35kW DC-DC 컨버터 시스템 설정 헤더 파일
- *
- * @details
- * 이 파일은 시스템 초기화 함수들의 선언과 관련 상수를 포함합니다.
- * 주요 내용:
- * - 하드웨어 초기화 함수 선언
- * - PWM 주기 상수 정의
- * - GPIO 설정 함수 선언
- * - 통신 모듈 초기화 함수 선언
- *
- * @author 김은규 (원작자)
- * @author 신덕균 (수정자)
- * @date 2024
- * @version 2.0
- *
- * @copyright Copyright (c) 2024
+ * @brief 시스템 하드웨어 초기화 헤더 파일
  * 
- * @history
- * - v1.0: 김은규 - 초기 개발 (함수 선언)
- * - v2.0: 신덕균 - 주석 개선 및 구조 정리
+ * @author 김은규 (원작자), 신덕균 (수정자)
+ * @date 2025
+ * @version 1.0
+ * @copyright Copyright (c) 2025
+ * 
+ * @details
+ * 35kW DC-DC 컨버터 하드웨어 초기화 함수 선언 및 상수 정의
+ * 
+ * @section functions 초기화 함수
+ * - PWM 모듈 초기화 (메인 타이머, 팬 제어)
+ * - ADC 센싱 설정 (온도, 전류, 전압)
+ * - 통신 인터페이스 (SPI, CAN, SCI)
+ * - GPIO 핀 설정 및 디지털 I/O
+ * 
+ * @section constants 주요 상수
+ * - PWM 주기: 10kHz (팬), 100kHz (메인)
+ * - 데드타임: 300ns (27 클럭)
+ * - 클럭 설정: 90MHz 시스템 클럭
+ * 
+ * @section history 변경 이력
+ * - v1.0: 김은규 - 기본 설정
+ * - v1.1: 신덕균 - protocol 추가 및 주석 개선
  */
 
 #ifndef _HG2_SETTING_H_

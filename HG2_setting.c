@@ -1,48 +1,40 @@
 /**
  * @file HG2_setting.c
- * @brief 35kW DC-DC 컨버터 시스템 초기화 및 설정 파일
- *
- * @details
- * 이 파일은 35kW DC-DC 컨버터 시스템의 하드웨어 초기화와 설정을 담당합니다.
- * 주요 기능:
- * - GPIO 핀 설정 및 초기화
- * - ePWM 모듈 설정 (메인 제어 타이밍, 팬 PWM)
- * - SPI 통신 설정 (ADC/DAC)
- * - CAN 통신 설정 (슬레이브 피드백)
- * - ADC 모듈 설정 (온도/전류/전압 센싱)
- * - 시스템 클럭 설정
- * - 인터럽트 벡터 설정
- * - 디지털 I/O 처리
- *
- * @section initialization_sequence 초기화 순서
- * 1. 시스템 클럭 설정 (90MHz)
- * 2. GPIO 핀 기능 설정
- * 3. ePWM 모듈 초기화
- * 4. SPI 통신 초기화
- * 5. CAN 통신 초기화
- * 6. ADC 모듈 초기화
- * 7. 인터럽트 설정
- *
- * @section hardware_configuration 하드웨어 설정
- * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz
- * - **ePWM1**: 팬 PWM 제어 (10kHz)
- * - **ePWM3**: 메인 제어 타이머 (100kHz)
- * - **SPI-A**: ADC/DAC 통신 (11.25MHz)
- * - **CAN-A**: 슬레이브 통신 (500kbps)
- * - **ADC**: 온도/전류/전압 센싱
- *
- * @author 김은규 (원작자)
- * @author 신덕균 (수정자)
- * @date 2024
- * @version 2.0
- *
- * @copyright Copyright (c) 2024
- *
- * @note 이 파일은 시스템 부팅 시 한 번만 실행되는 초기화 함수들을 포함합니다.
+ * @brief 시스템 하드웨어 초기화 구현 파일
  * 
- * @history
- * - v1.0: 김은규 - 초기 개발 (하드웨어 초기화 함수)
- * - v2.0: 신덕균 - 코드 정리 및 주석 개선
+ * @author 김은규 (원작자), 신덕균 (수정자)
+ * @date 2025
+ * @version 1.1
+ * @copyright Copyright (c) 2025
+ * 
+ * @details
+ * TI F28069 기반 35kW DC-DC 컨버터 하드웨어 초기화 구현
+ * 
+ * @section modules 초기화 모듈
+ * **PWM 시스템**
+ * - ePWM1: 팬 PWM 제어 (10kHz, 데드타임 300ns)
+ * - ePWM3: 메인 제어 타이머 (100kHz 인터럽트)
+ * 
+ * **통신 인터페이스**
+ * - SPI-A: 외부 ADC 통신 (11.25MHz)
+ * - CAN-A: 프로토콜 통신 (500kbps)
+ * - SCI-A/B: RS485/RS232 통신
+ * 
+ * **센싱 시스템**
+ * - 내장 ADC: 온도, 전류, 배터리 전압
+ * - GPIO: 디지털 입력 (DIP 스위치, 운전 스위치)
+ * 
+ * @section timing 타이밍 설정
+ * - 시스템 클럭: 90MHz
+ * - PWM 클럭: 90MHz (1:1 분주)
+ * - SPI 클럭: 11.25MHz (8:1 분주)
+ * - 제어 주기: 100kHz (10μs)
+ * 
+ * @section history 변경 이력
+ * - v1.0: 김은규 - 기본 설정
+ * - v1.1: 신덕균 - protocol 추가 및 주석 개선
+ * 
+ * @note 시스템 부팅 시 한 번만 실행되는 초기화 함수들
  */
 
 #include "DSP28x_Project.h"

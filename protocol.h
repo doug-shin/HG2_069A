@@ -1,3 +1,28 @@
+/**
+ * @file protocol.h
+ * @brief CAN Protocol 통신 헤더 파일
+ * 
+ * @author 신덕균
+ * @date 2025
+ * @version 1.0
+ * @copyright Copyright (c) 2025
+ * 
+ * @details
+ * EPC 시스템과의 CAN 프로토콜 통신을 위한 헤더 파일
+ * 
+ * @section features 주요 기능
+ * - CAN 메시지 엔디안 변환 매크로
+ * - 프로토콜 데이터 구조체 정의
+ * - 상태 머신 및 제어 명령 열거형
+ * - 통신 처리 함수 선언
+ * 
+ * @section protocol_spec 프로토콜 사양
+ * - **보고**: 100번대 ID (동작 중 10ms, 대기 중 100ms)
+ * - **명령**: 200번대 ID (스텝 설정, 제어 명령)
+ * - **응답**: 2200번대 ID (ACK), 130번대 ID (종료 보고)
+ * - **Heart Beat**: 360번 ID (100ms 주기, EPC → 모듈)
+ */
+
 #ifndef PROTOCOL_H_
 #define PROTOCOL_H_
 

@@ -1,156 +1,86 @@
 /**
  * @file HG2.c
  * @brief 35kW DC-DC 컨버터 제어 시스템 메인 소스 파일
- *
- * @details
- * 이 파일은 35kW DC-DC 컨버터의 메인 제어 로직을 포함합니다.
- * 주요 기능:
- * - Modbus RTU 통신을 통한 전류/전압 지령 수신
- * - PI 제어를 통한 전압 제어 (충전/방전 모드)
- * - CAN 통신을 통한 슬레이브 모듈 관리
- * - 과전압/하드웨어 폴트 보호
- * - 온도 모니터링 및 팬 제어
- * - RS485 통신을 통한 슬레이브 전류 지령 전송
- *
- * @section control_algorithm 제어 알고리즘
- * - **100kHz ePWM3 인터럽트**: 메인 제어 루프
- * - **20kHz 분주**: 5단계 순차 처리 (전압센싱, PI제어, 통신, 온도, 평균계산)
- * - **PI 제어**: DCL 라이브러리 기반 최적화된 PI 컨트롤러 (충전/방전 모드별)
- * - **소프트 스타트**: 전류 램프업을 통한 안전한 기동
- * - **Protocol 제어**: EPC 명령에 따른 스텝별 전류/전압 제어
- *
- * @section communication 통신 시스템
- * **물리 계층 및 프로토콜별 상세**
- * - **Modbus RTU over SCI-B/RS232**: HMI 통신 (38.4kbps, 8bit, 1stop, none, 100ms 폴링)
- * - **CAN Protocol**: 외부 EPC 시스템과의 제어 통신 (500kbps, Protocol.md 규격)
- * - **CAN Legacy**: 내부 슬레이브 1~9 피드백 수신 (500kbps 적응, CAN 2.0A, MBOX0~9)
- * - **RS485 over SCI-A**: 전류 지령 DAC 값 전송 (5.625Mbps, 20kHz 주기, STX+2바이트+ETX)
  * 
- * @section can_dual_system CAN 이중 통신 체계
- * **[새로운 Protocol 통신 - 500kbps]**
- * - **용도**: 외부 EPC(상위 제어 시스템)와의 표준 프로토콜 통신
- * - **속도**: 500kbps (외부 시스템 요구사항에 맞춤)
- * - **구조**: Protocol.md 규격 기반 (100번대 보고, 200번대 명령, 2200번대 ACK)
- * - **기능**: 스텝 제어, 상태 보고, 안전 조건 관리, Heart Beat
- * 
- * **[기존 Legacy 통신 - 1Mbps]**  
- * - **용도**: 내부 슬레이브 모듈 1~9와의 피드백 수신 (Legacy 프로그램 방식 유지)
- * - **속도**: 1Mbps (내부 통신이므로 우리가 조절 가능)
- * - **구조**: MBOX0~9 (마스터 0xF0, 슬레이브 0xF1~0xF9)
- * - **기능**: 전류 피드백, 온도 모니터링, 폴트 상태 수신
- * 
- * @section can_coexistence CAN 공존 방식
- * - **단일 CAN 버스**: F28069는 CAN 컨트롤러 1개만 지원
- * - **Protocol 우선**: 500kbps로 설정하여 외부 시스템과 호환
- * - **Legacy 적응**: 기존 슬레이브들도 500kbps로 변경 필요 (내부 조절 가능)
- *
- * @section safety_features 안전 기능
- * - 과전압 보호 (1100V 이상)
- * - 하드웨어 폴트 감지 (GPIO 기반)
- * - 워치독 타이머
- * - 소프트 스타트 제어
- *
- * @note 이 파일은 TI F28069 마이크로컨트롤러용으로 작성되었습니다.
- *       DCL 라이브러리를 사용한 최적화된 PI 제어기를 포함합니다.
- * 
- * @section hardware_specs 하드웨어 사양
- * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz (90MHz/8)
- * 
- * @subsection ADC 구성 (혼합형: 내장 + 외부)
- * **내장 ADC (12비트, 100kHz 샘플링)**
- * - **ADCRESULT0**: 온도 센서 (0~4095, 3V 기준전압, 20.4mV/℃, 오프셋 1.4℃)
- * - **ADCRESULT1**: 전류 센서 (±100A 매핑, 0A=2048(1.5V), +100A=4095(3V), -100A=0(0V))
- * - **ADCRESULT2**: 배터리 전압 (현재 미사용)
- * 
- * **외부 SPI ADC (16비트, 11.25MHz 통신, 100kHz 샘플링)**
- * - **용도**: 고정밀도 전압 센서 (0~65535 레벨)
- * - **통신**: SPI-A (SCLK=GPIO18, MISO=GPIO3, CS=GPIO7)
- * - **데이터**: SpiaRegs.SPIRXBUF → V_out_ADC (16비트 원시값)
- * 
- * @subsection DAC 구성 (SCI 기반 디지털 전송)
- * **DAC 지령 전송 (12비트, SCI-A → RS485)**
- * - **해상도**: 12비트 (0~4095)
- * - **매핑**: 0A=2000, +80A=4000, -80A=0 (방전/회생 모드)
- * - **통신**: SCI-A RS485 (38.4kbps, 20kHz 지령 전송)
- * - **프로토콜**: STX(0x02) + 하위바이트 + 상위바이트 + ETX(0x03)
- * - **목적지**: 외부 파워 모듈의 실제 DAC 하드웨어
- * 
- * @subsection 통신 인터페이스 상세 (물리계층/프로토콜/속도)
- * **SPI-A (SPI 전용 물리계층, 11.25MHz)**
- * - **용도**: 외부 16비트 ADC 데이터 읽기 전용 (SPI 프로토콜)
- * - **핀**: SCLK(GPIO18), MISO(GPIO3), ADC_CS(GPIO7), DAC_CS(GPIO44)
- * 
- * **SCI-A (UART 물리계층, 5.625Mbps, RS485)**
- * - **용도**: 전류 지령 DAC 값을 외부 파워 모듈로 전송 (커스텀 프로토콜)
- * - **주기**: 20kHz (100kHz → 5:1 데시메이션)
- * - **설정**: SCIA_PRD = 0 (최고속도, LSPCLK/16 = 90MHz/16 = 5.625Mbps)
- * 
- * **SCI-B (UART 물리계층, 38.4kbps, RS232)**
- * - **용도**: HMI와의 제어 통신 (Modbus RTU 프로토콜)
- * - **데이터**: 전류/전압 지령 수신, 센서값 송신
- * 
- * **CAN-A (CAN 물리계층, 500kbps)**
- * - **용도**: Protocol 통신 + Legacy 슬레이브 피드백 (이중 통신 체계)
- * - **프로토콜**: CAN 2.0A + 커스텀 애플리케이션 계층
- * 
- * @section pin_mapping 핀 매핑 정보
- * **ADC 입력핀 (내장 ADC)**
- * - **ADC0**: 온도센서 (12비트)
- * - **ADC1**: 전류센서 ±100A (12비트)
- * - **ADC2**: 배터리 전압 (현재 미사용)
- * 
- * **SPI 통신핀 (외부 ADC 전용)**
- * - **SCLK**: GPIO18 (11.25MHz 클럭)
- * - **MISO**: GPIO3 (ADC 데이터 입력)
- * - **ADC_CS**: GPIO7 (ADC 칩 선택)
- * - **DAC_CS**: GPIO44 (DAC 칩 선택, 현재 SPI로 DAC 사용 안함)
- * 
- * **UART 통신핀 (SCI 모듈)**
- * - **SCI-A (RS485)**: 전류 지령 DAC 값 전송용 (5.625Mbps)
- * - **SCI-B (RS232)**: Modbus RTU HMI 통신용 (38.4kbps)
- * 
- * **CAN 통신핀**
- * - **CAN-A**: Protocol 통신 + Legacy 슬레이브 피드백
- * 
- * @section todo 미완료 작업 (우선순위별)
- * [우선순위 중]
- * - Protocol 통신: EPC Heart Beat 타임아웃 처리 및 안전 모드 전환
- * - Legacy 통신: 슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
- * - Legacy 통신: 슬레이브에서 마스터의 485 수신 실패 시 CAN 폴트 전송
- * - 통신 폴트 발생 시 처리 및 경고 표시
- *
- * [우선순위 저]
- * - 리셋 후 초기 FAN 미동작 원인 검토 (FAN PWM Duty 0.15 고정 문제)
- * - 터미널에 전류값 소수점 표시
- * - SCI 에러 처리: if(SciaRegs.SCIRXST.bit.PE) // 패리티/프레이밍/오버런 에러 등
- * - 에러 발생 시 카운트하여 저장 (SCIRXST 레지스터 활용)
- * - Run 신호 특정값 사용: Run=0xA0, Stop=0x00 (슬레이브 호환성)
- * 
- * @section protocol_timing Protocol 통신 타이밍 (500kbps 기준)
- * - **동작 중 보고**: 100번대 ID, 10ms 주기, 8개 메시지 연속 전송
- * - **대기 중 보고**: 110번대 ID, 100ms 주기, 8개 메시지 연속 전송  
- * - **명령 수신**: 200번대 ID (스텝 명령), 210번 ID (제어 명령)
- * - **응답 전송**: 2200번대 ID (ACK), 130번대 ID (종료 보고)
- * - **Heart Beat**: 360번 ID, 100ms 주기 (EPC → 모듈)
- * 
- * @section sci_error_handling SCI 에러 처리 방법
- * - **RXERR INT ENA** (SCICTL1 비트6): 수신 오류 인터럽트 활성화
- * - **SCIRXST 레지스터**: 중단감지, 프레이밍, 오버런, 패리티 오류 확인
- * - **SW RESET**: SCICTL1 레지스터로 오류 플래그 삭제
- * - **중단 감지 시**: SCI 데이터 수신 중지, SW RESET으로 재시작 필요
- *
- * @section history 변경 이력
- * - v1.0: 김은규 - 초기 개발 (기본 제어 로직, Modbus 통신)
- * - v1.1: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
- * - v1.2: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
- * 
- * @author 김은규 (원작자)
- * @author 신덕균 (수정자)
- * 
+ * @author 김은규 (원작자), 신덕균 (수정자)
  * @date 2025
  * @version 1.2
- *
  * @copyright Copyright (c) 2025
+ *
+ * @details
+ * TI F28069 마이크로컨트롤러 기반 35kW DC-DC 컨버터 제어 시스템
+ * DCL 라이브러리를 활용한 최적화된 PI 제어 및 다중 통신 프로토콜 지원
+ *
+ * @section overview 시스템 개요
+ * **주요 기능**
+ * - PI 제어 기반 전압/전류 제어 (충전/방전 모드)
+ * - 멀티 프로토콜 통신 (Modbus RTU, CAN Protocol, Legacy CAN, RS485)
+ * - 하드웨어 폴트 감지 및 보호 기능
+ * - 온도 모니터링 및 팬 PWM 제어
+ * - 소프트 스타트 및 안전 기능
+ *
+ * @section control_system 제어 시스템
+ * **제어 타이밍**
+ * - **메인 루프**: 100kHz ePWM3 인터럽트 타이머 기반
+ * - **제어 주기**: 20kHz (5단계 순차 처리)
+ * - **PI 컨트롤러**: DCL 라이브러리 기반 (65% 성능 향상)
+ * 
+ * **제어 알고리즘**
+ * - 전압센싱 → PI제어 → 통신처리 → 온도제어 → 평균계산
+ * - 충전/방전 모드별 독립 PI 컨트롤러
+ * - 소프트 스타트를 통한 안전한 전류 램프업
+ *
+ * @section communication 통신 시스템
+ * **1. Modbus RTU (SCI-B/RS232, 38.4kbps)**
+ * - HMI와의 제어 통신
+ * - 전류/전압 지령 수신, 센서값 송신
+ * 
+ * **2. CAN Protocol (CAN-A, 500kbps)**
+ * - 외부 EPC 시스템과의 표준 프로토콜 통신
+ * - protocol.md 규격 (100번대 보고, 200번대 명령, Heart Beat)
+ * 
+ * **3. Legacy CAN (CAN-A, 500kbps)**
+ * - 내부 슬레이브 모듈 1~9 피드백 수신
+ * - MBOX0~9 (마스터 0xF0, 슬레이브 0xF1~0xF9)
+ * 
+ * **4. RS485 (SCI-A, 5.625Mbps)**
+ * - 슬레이브로 전류 지령 DAC 값 전송 (20kHz 주기)
+ * - 프로토콜: STX + 2바이트 + ETX
+ *
+ * @section hardware 하드웨어 구성
+ * **클럭 시스템**
+ * - SYSCLKOUT: 90MHz
+ * - LSPCLK: 11.25MHz (90MHz/8)
+ * 
+ * **센싱 시스템**
+ * - 내장 ADC (12비트): 온도, 전류 센싱
+ * - 외부 SPI ADC (16비트): 고정밀 전압 센싱
+ * 
+ * **출력 시스템**
+ * - RS485 전송: 12비트 DAC 전류 지령값 (0~4095)
+ * - 팬 PWM 제어: 온도 기반 15~90% 제어
+ *
+ * @section safety 안전 기능
+ * - 과전압 보호 (1100V 임계값)
+ * - DAB 하드웨어 폴트 감지
+ * - 워치독 타이머
+ * - 소프트 스타트 제어
+ * - Heart Beat 타임아웃 감지
+ *
+ * @section todo 주요 미완료 작업
+ * **우선순위 높음**
+ * - Protocol Heart Beat 타임아웃 처리
+ * - 슬레이브 CAN ID 중복 검출
+ * - 통신 폴트 처리 및 경고
+ * 
+ * **우선순위 중간**
+ * - FAN 초기 동작 개선
+ * - SCI 에러 처리 강화
+ *
+ * @section history 변경 이력
+ * - v1.0: 김은규 - 초기 개발 (기본 제어, Modbus 통신)
+ * - v1.1: 신덕균 - 구조 개선 (변수 정리, CAN Protocol 추가)
+ * - v1.2: 신덕균 - 최적화 (DCL 컨트롤러, 인터럽트 개선)
  */
 
 // ###########################################################################
@@ -218,13 +148,11 @@ Uint16 detect_module_num = 1;
 // CAN 메일박스 배열 포인터
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
 
-Uint16 discharge_fet_delay_cnt = 0;  ///< 방전 FET 지연 카운터 (운전 시작 후 1초)
+Uint16 discharge_fet_delay_cnt = 0;  // 방전 FET 지연 카운터 (운전 시작 후 1초)
 Uint16 timer_50us_cnt = 0;
 
 // ADC 및 기본 설정
 const float32 V_ref = 5.0f;
-
-// 하드웨어 안전 관련 변수들은 HG2.h에서 선언됨
 
 /**
  * @brief 메인 함수 - 시스템 초기화 및 메인 루프
@@ -461,7 +389,7 @@ void main(void)
         if (can_report_flag == 1)
         {
             can_report_flag = 0;
-            SendCANReport(16); // Protocol.md 규격에 따른 상태 보고 (100번대/110번대)
+            SendCANReport(16); // protocol.md 규격에 따른 상태 보고 (100번대/110번대)
         }
 
         // Legacy CAN 송수신 처리 (슬레이브 1~9 피드백, 1kHz)

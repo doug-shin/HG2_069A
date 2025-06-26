@@ -1,5 +1,28 @@
-// protocol.c - 프로토콜 처리 모듈
-// CAN 통신을 통한 충/방전 명령 처리 및 상태 보고 기능 제공
+/**
+ * @file protocol.c
+ * @brief CAN Protocol 통신 처리 소스 파일
+ * 
+ * @author 신덕균
+ * @date 2025
+ * @version 1.0
+ * @copyright Copyright (c) 2025
+ * 
+ * @details
+ * EPC 시스템과의 CAN 프로토콜 통신 구현
+ * 
+ * @section implementation 구현 기능
+ * - CAN 명령 수신 및 파싱 (200번대 ID)
+ * - 상태 보고 전송 (100/110번대 ID)
+ * - Heart Beat 타임아웃 관리
+ * - 상태 머신 제어 (IDLE ↔ RUNNING)
+ * - 종료 조건 모니터링 및 보고
+ * 
+ * @section timing 통신 타이밍
+ * - **동작 중**: 10ms 주기 상태 보고
+ * - **대기 중**: 100ms 주기 상태 보고
+ * - **Heart Beat**: 100ms 주기 감시
+ * - **ACK 응답**: 명령 수신 즉시
+ */
 
 #include "DSP28x_Project.h"
 #include "HG2.h"
