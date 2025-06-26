@@ -187,7 +187,7 @@ SYSTEM_STATE system_state = STATE_STOP;                              ///< 시스
 eConfig_USART_send_period USART_send_period = e50us;                 ///< USART 전송 주기 (50us)
 
 // Debug and Monitoring
-Uint32 mainLoopCount = 0; ///< 메인 루프 카운터 (디버깅용)
+Uint32 main_loop_cnt = 0; ///< 메인 루프 카운터 (디버깅용)
 
 /** @} */
 
@@ -216,7 +216,7 @@ float32 I_fb_avg = 0.0f; ///< 전류 피드백 평균 (모니터링용)
 Uint16 I_cal_cnt = 0;    ///< 전류 계산 카운터
 
 // Soft Start Control
-float32 I_ss = 0.0f; ///< 소프트 스타트 전류 제한
+float32 soft_start_limit = 0.0f; ///< 소프트 스타트 전류 제한
 
 // DAC Output
 Uint16 I_cmd_DAC = 0; ///< 전류 지령 DAC 값 (0~4095)
@@ -381,9 +381,7 @@ Uint16 Board_ID = 0;                ///< 보드 ID (DIP 스위치 4비트)
  */
 
 __interrupt void adc_isr(void);             ///< ADC 변환 완료 인터럽트 (온도/전류/전압)
-__interrupt void epwm1_isr(void);           ///< ePWM1 인터럽트 (팬 PWM 제어)
 __interrupt void epwm3_isr(void);           ///< ePWM3 인터럽트 (100kHz, 메인 제어 루프)
-__interrupt void spi_isr(void);             ///< SPI 통신 완료 인터럽트
 __interrupt void ecan0_isr(void);           ///< CAN 인터럽트 (슬레이브 + Protocol)
 __interrupt void scibRxReadyISR(void);      ///< SCI-B 수신 인터럽트 (Modbus RTU)
 __interrupt void scibTxEmptyISR(void);      ///< SCI-B 송신 인터럽트 (Modbus RTU)

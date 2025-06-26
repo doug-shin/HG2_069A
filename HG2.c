@@ -20,10 +20,11 @@
  * - **Protocol 제어**: EPC 명령에 따른 스텝별 전류/전압 제어
  *
  * @section communication 통신 시스템
- * - **Modbus RTU**: HMI와 RS232 통신 (38.4kbps, 8bit, 1stop, none, 100ms 폴링)
+ * **물리 계층 및 프로토콜별 상세**
+ * - **Modbus RTU over SCI-B/RS232**: HMI 통신 (38.4kbps, 8bit, 1stop, none, 100ms 폴링)
  * - **CAN Protocol**: 외부 EPC 시스템과의 제어 통신 (500kbps, Protocol.md 규격)
- * - **CAN Legacy**: 내부 슬레이브 1~9 피드백 수신 (1Mbps, CAN 2.0A, MBOX0~9)
- * - **RS485**: 슬레이브 전류 지령 전송 (5.625Mbps, 0.1ms마다 9byte, 마스터-슬레이브 동일 프로세서로 baud 에러 없음)
+ * - **CAN Legacy**: 내부 슬레이브 1~9 피드백 수신 (500kbps 적응, CAN 2.0A, MBOX0~9)
+ * - **RS485 over SCI-A**: 전류 지령 DAC 값 전송 (5.625Mbps, 20kHz 주기, STX+2바이트+ETX)
  * 
  * @section can_dual_system CAN 이중 통신 체계
  * **[새로운 Protocol 통신 - 500kbps]**
@@ -49,39 +50,69 @@
  * - 워치독 타이머
  * - 소프트 스타트 제어
  *
- * @author 김은규 (원작자)
- * @author 신덕균 (수정자)
- * @date 2024
- * @version 2.0
- *
- * @copyright Copyright (c) 2024
- *
  * @note 이 파일은 TI F28069 마이크로컨트롤러용으로 작성되었습니다.
  *       DCL 라이브러리를 사용한 최적화된 PI 제어기를 포함합니다.
  * 
  * @section hardware_specs 하드웨어 사양
  * - **클럭**: SYSCLKOUT 90MHz, LSPCLK 11.25MHz (90MHz/8)
- * - **SPI**: 11.25MHz (ADC/DAC 통신용)
- * - **전류 센서**: ADC 3V → 4095, 0A=1.5V(2048), +100A=3V(4095), -100A=0V(0)
- * - **온도 센서**: 12비트 ADC, 기준전압 3V, 기울기 20.4mV/℃, 오프셋 1.4℃
- * - **DAC**: 12비트, 0A=2000, +80A=4000, -80A=0 (방전/회생 모드)
+ * 
+ * @subsection ADC 구성 (혼합형: 내장 + 외부)
+ * **내장 ADC (12비트, 100kHz 샘플링)**
+ * - **ADCRESULT0**: 온도 센서 (0~4095, 3V 기준전압, 20.4mV/℃, 오프셋 1.4℃)
+ * - **ADCRESULT1**: 전류 센서 (±100A 매핑, 0A=2048(1.5V), +100A=4095(3V), -100A=0(0V))
+ * - **ADCRESULT2**: 배터리 전압 (현재 미사용)
+ * 
+ * **외부 SPI ADC (16비트, 11.25MHz 통신, 100kHz 샘플링)**
+ * - **용도**: 고정밀도 전압 센서 (0~65535 레벨)
+ * - **통신**: SPI-A (SCLK=GPIO18, MISO=GPIO3, CS=GPIO7)
+ * - **데이터**: SpiaRegs.SPIRXBUF → V_out_ADC (16비트 원시값)
+ * 
+ * @subsection DAC 구성 (SCI 기반 디지털 전송)
+ * **DAC 지령 전송 (12비트, SCI-A → RS485)**
+ * - **해상도**: 12비트 (0~4095)
+ * - **매핑**: 0A=2000, +80A=4000, -80A=0 (방전/회생 모드)
+ * - **통신**: SCI-A RS485 (38.4kbps, 20kHz 지령 전송)
+ * - **프로토콜**: STX(0x02) + 하위바이트 + 상위바이트 + ETX(0x03)
+ * - **목적지**: 외부 파워 모듈의 실제 DAC 하드웨어
+ * 
+ * @subsection 통신 인터페이스 상세 (물리계층/프로토콜/속도)
+ * **SPI-A (SPI 전용 물리계층, 11.25MHz)**
+ * - **용도**: 외부 16비트 ADC 데이터 읽기 전용 (SPI 프로토콜)
+ * - **핀**: SCLK(GPIO18), MISO(GPIO3), ADC_CS(GPIO7), DAC_CS(GPIO44)
+ * 
+ * **SCI-A (UART 물리계층, 5.625Mbps, RS485)**
+ * - **용도**: 전류 지령 DAC 값을 외부 파워 모듈로 전송 (커스텀 프로토콜)
+ * - **주기**: 20kHz (100kHz → 5:1 데시메이션)
+ * - **설정**: SCIA_PRD = 0 (최고속도, LSPCLK/16 = 90MHz/16 = 5.625Mbps)
+ * 
+ * **SCI-B (UART 물리계층, 38.4kbps, RS232)**
+ * - **용도**: HMI와의 제어 통신 (Modbus RTU 프로토콜)
+ * - **데이터**: 전류/전압 지령 수신, 센서값 송신
+ * 
+ * **CAN-A (CAN 물리계층, 500kbps)**
+ * - **용도**: Protocol 통신 + Legacy 슬레이브 피드백 (이중 통신 체계)
+ * - **프로토콜**: CAN 2.0A + 커스텀 애플리케이션 계층
  * 
  * @section pin_mapping 핀 매핑 정보
- * - **LED**: LED11(GPIO31), LED12(GPIO32), LED13(GPIO33)
- * - **ADC**: ADC0(온도센서), ADC1(전류센서 ±100A)
- * - **EEPROM**: SDA(GPIO32), SCL(GPIO33), WP(GPIO14) - 24LC128
- * - **SPI**: SCLK(GPIO18), MISO(GPIO3), CS(GPIO44) - ADC/DAC 통신
- * - **DIP 스위치**: GPIO5~8 (CAN ID 설정용)
- * - **통신**: RS232(SCI-A), RS485(SCI-B), CAN(eCAN-A)
+ * **ADC 입력핀 (내장 ADC)**
+ * - **ADC0**: 온도센서 (12비트)
+ * - **ADC1**: 전류센서 ±100A (12비트)
+ * - **ADC2**: 배터리 전압 (현재 미사용)
  * 
- * @history
- * - v1.0: 김은규 - 초기 개발 (기본 제어 로직, Modbus 통신)
- * - v2.0: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
- */
-
-/*===========================================================================
- * 미완료 작업 (우선순위별)
- *===========================================================================
+ * **SPI 통신핀 (외부 ADC 전용)**
+ * - **SCLK**: GPIO18 (11.25MHz 클럭)
+ * - **MISO**: GPIO3 (ADC 데이터 입력)
+ * - **ADC_CS**: GPIO7 (ADC 칩 선택)
+ * - **DAC_CS**: GPIO44 (DAC 칩 선택, 현재 SPI로 DAC 사용 안함)
+ * 
+ * **UART 통신핀 (SCI 모듈)**
+ * - **SCI-A (RS485)**: 전류 지령 DAC 값 전송용 (5.625Mbps)
+ * - **SCI-B (RS232)**: Modbus RTU HMI 통신용 (38.4kbps)
+ * 
+ * **CAN 통신핀**
+ * - **CAN-A**: Protocol 통신 + Legacy 슬레이브 피드백
+ * 
+ * @section todo 미완료 작업 (우선순위별)
  * [우선순위 중]
  * - Protocol 통신: EPC Heart Beat 타임아웃 처리 및 안전 모드 전환
  * - Legacy 통신: 슬레이브 보드 CAN ID 중복 검출하여 마스터로 전송
@@ -93,24 +124,7 @@
  * - 터미널에 전류값 소수점 표시
  * - SCI 에러 처리: if(SciaRegs.SCIRXST.bit.PE) // 패리티/프레이밍/오버런 에러 등
  * - 에러 발생 시 카운트하여 저장 (SCIRXST 레지스터 활용)
- * - Flash vs RAM 실행시간 비교 분석
  * - Run 신호 특정값 사용: Run=0xA0, Stop=0x00 (슬레이브 호환성)
- * 
- * @section can_bus_load CAN 버스 로드율 분석 (Legacy 1Mbps 기준)
- * - 1 Frame = 130bit, 전송시간 = 130us (1000kbps에서 1bit = 1us)
- * - 1ms 주기: 130/1000 = 13% 로드 (1kHz)
- * - 0.2ms 주기: 130/200 = 65% 로드 (5kHz)
- * - 0.1ms 주기: 130/100 = 130% (불가능, 10kHz)
- * - 실제 측정: 25kHz 전송 → 0.15ms 간격 수신 확인
- * 
- * @section can_frequency_table CAN 주파수별 로드율 실측 데이터 (Legacy 통신)
- * | 분주값 | 주파수 | 주기 | 로드율 | 실측 수신간격 |
- * |--------|--------|------|--------|---------------|
- * | 100    | 1kHz   | 1ms  | 13%    | 1ms           |
- * | 50     | 2kHz   | 0.5ms| 26%    | 0.5ms         |
- * | 10     | 10kHz  | 0.1ms| 130%   | 0.22ms (지연) |
- * | 5      | 20kHz  | 0.05ms| 260%  | 불안정        |
- * | 4      | 25kHz  | 0.04ms| 325%  | 0.4ms (대폭지연)|
  * 
  * @section protocol_timing Protocol 통신 타이밍 (500kbps 기준)
  * - **동작 중 보고**: 100번대 ID, 10ms 주기, 8개 메시지 연속 전송
@@ -124,6 +138,19 @@
  * - **SCIRXST 레지스터**: 중단감지, 프레이밍, 오버런, 패리티 오류 확인
  * - **SW RESET**: SCICTL1 레지스터로 오류 플래그 삭제
  * - **중단 감지 시**: SCI 데이터 수신 중지, SW RESET으로 재시작 필요
+ *
+ * @section history 변경 이력
+ * - v1.0: 김은규 - 초기 개발 (기본 제어 로직, Modbus 통신)
+ * - v1.1: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
+ * - v1.2: 신덕균 - 코드 최적화 및 구조 개선 (변수 정리, 인터럽트 개선, CAN 프로토콜 통신 추가)
+ * 
+ * @author 김은규 (원작자)
+ * @author 신덕균 (수정자)
+ * 
+ * @date 2025
+ * @version 1.2
+ *
+ * @copyright Copyright (c) 2025
  */
 
 // ###########################################################################
@@ -164,10 +191,8 @@ void eCana_config(void);
 #pragma CODE_SECTION(ecan0_isr, "ramfuncs");
 #pragma CODE_SECTION(adc_isr, "ramfuncs");
 
-__interrupt void epwm1_isr(void);
-__interrupt void epwm3_isr(void);
-__interrupt void spi_isr(void);
-__interrupt void ecan0_isr(void);
+__interrupt void control_loop_isr(void);
+__interrupt void can_protocol_isr(void);
 __interrupt void adc_isr(void);
 
 extern __interrupt void scibRxReadyISR(void);
@@ -177,26 +202,13 @@ extern __interrupt void cpuTimer1ExpiredISR(void);
 extern USHORT usRegInputBuf[REG_INPUT_NREGS];
 extern USHORT usRegHoldingBuf[REG_HOLDING_NREGS];
 
-//*****************************************************************************
-// DAC Reference Voltage Configuration
-// DAC output range is 0V to 2*Vref (e.g., 1.024V ref → 0~2.048V output)
-//*****************************************************************************
-#define FAST_REF1 0xD001 // 내부 1.024V
-#define SLOW_REF1 0x9001
-#define FAST_REF2 0xD002 // 내부 2.048V
-#define SLOW_REF2 0x9002
-#define FAST_REF_E 0xD000 // 외부
-#define SLOW_REF_E 0x9000
-
-// 전송 제어 문자
+// SCI전송 제어 문자
 #define STX (0x02) // Start of Text, 본문의 개시 및 정보 메세지 헤더의 종료를 표시
 #define ETX (0x03) // End of Text, 본문의 종료를 표시한다
 #define DLE (0x10) // Data link escape, 뒤따르는 연속된 글자들의 의미를 바꾸기 위해 사용, 주로 보조적 전송제어기능을 제공
-// gSciTxBuf 배열 제거: 직접 SCI 레지스터에 쓰는 방식으로 최적화
 
 Uint16 cpu_timer1_cnt = 0;
-Uint16 spi_interrupt_cnt = 0;
-Uint32 epwm3_isr_cnt = 0;
+Uint32 control_loop_cnt = 0;
 
 Uint16 force_reset_test = 0, fifo_err_cnt = 0;
 Uint16 can_tx_cnt = 0, can_tx_flag = 0;
@@ -327,14 +339,12 @@ void main(void)
     PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
 
     EALLOW;
-    PieVectTable.EPWM1_INT = &epwm1_isr;
-    PieVectTable.EPWM3_INT = &epwm3_isr;
+    PieVectTable.EPWM3_INT = &control_loop_isr;
     PieVectTable.ADCINT1 = &adc_isr;
-    PieVectTable.SPIRXINTA = &spi_isr;
     PieVectTable.SCIRXINTB = &scibRxReadyISR;
     PieVectTable.SCITXINTB = &scibTxEmptyISR;
     PieVectTable.TINT1 = &cpuTimer1ExpiredISR;
-    PieVectTable.ECAN0INTA = &ecan0_isr;
+    PieVectTable.ECAN0INTA = &can_protocol_isr;
     EDIS;
 
     //=========================================================================
@@ -352,14 +362,12 @@ void main(void)
     // CPU 인터럽트 그룹 활성화
     IER |= M_INT1;  // Timer 0, ADC
     IER |= M_INT3;  // ePWM
-    IER |= M_INT6;  // SPI
     IER |= M_INT9;  // CAN, SCI
     IER |= M_INT13; // Timer 1
 
     // PIE 인터럽트 활성화
     PieCtrlRegs.PIEIER3.bit.INTx3 = 1; // ePWM3
     PieCtrlRegs.PIEIER1.bit.INTx1 = 1; // ADC
-    PieCtrlRegs.PIEIER6.bit.INTx1 = 1; // SPI
     PieCtrlRegs.PIEIER9.bit.INTx3 = 1; // SCI-B RX
     PieCtrlRegs.PIEIER9.bit.INTx4 = 1; // SCI-B TX
     PieCtrlRegs.PIEIER9.bit.INTx5 = 1; // CAN
@@ -434,7 +442,7 @@ void main(void)
     //=========================================================================
     for (;;)
     {
-        mainLoopCount++; // 디버깅용 free-run 카운터
+        main_loop_cnt++; // 디버깅용 free-run 카운터
 
         // SCI FIFO 오버플로우 처리
         if (ScibRegs.SCIFFRX.bit.RXFFOVF || force_reset_test)
@@ -529,26 +537,6 @@ void main(void)
 // 인터럽트 서비스 루틴
 //=============================================================================
 
-// cpu_timer0_isr, cpu_timer2_isr 제거: Dead Code였음 (PIE 인터럽트 비활성화)
-
-/**
- * @brief SPI 인터럽트 서비스 루틴
- */
-__interrupt void spi_isr(void)
-{
-    spi_interrupt_cnt++;
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP6;
-}
-
-/**
- * @brief ePWM1 인터럽트 서비스 루틴 (팬 PWM 제어용)
- */
-__interrupt void epwm1_isr(void)
-{
-    EPwm1Regs.ETCLR.bit.INT = 1; // 인터럽트 플래그 클리어
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
-}
-
 /**
  * @brief ePWM3 인터럽트 서비스 루틴 (100kHz 호출)
  *
@@ -576,9 +564,9 @@ __interrupt void epwm1_isr(void)
  * @note 이 인터럽트는 시스템의 실시간 성능을 결정하는 핵심 함수입니다.
  *       DCL 사용 시 약 65% 성능 향상 (40-50 cycles → 12-15 cycles)
  */
-__interrupt void epwm3_isr(void) //100kHz 호출
+__interrupt void control_loop_isr(void) //100kHz 호출
 {
-    epwm3_isr_cnt++;
+    control_loop_cnt++;
 
     //=========================================================================
     // 1. CAN 전송 타이밍 관리 (1kHz)
@@ -653,10 +641,10 @@ __interrupt void epwm3_isr(void) //100kHz 호출
     //---------------------------------------------------------------------
     case 2:
         // 소프트 스타트 제한 처리
-        if (I_cmd > I_ss)
-            I_cmd_ss = I_ss;
-        else if (I_cmd < -I_ss)
-            I_cmd_ss = -I_ss;
+        if (I_cmd > soft_start_limit)
+            I_cmd_ss = soft_start_limit;
+        else if (I_cmd < -soft_start_limit)
+            I_cmd_ss = -soft_start_limit;
         else
             I_cmd_ss = I_cmd;
 
@@ -670,14 +658,14 @@ __interrupt void epwm3_isr(void) //100kHz 호출
 
         // 소프트 스타트 처리
         // 0.00005 = 램프업 기울기 (80A/1.6초, 50us마다 0.004A 증가)
-        I_ss += CURRENT_LIMIT * 0.00005f;
-        if (I_ss > CURRENT_LIMIT)
-            I_ss = CURRENT_LIMIT; // 최대 전류로 제한
+        soft_start_limit += CURRENT_LIMIT * 0.00005f;
+        if (soft_start_limit > CURRENT_LIMIT)
+            soft_start_limit = CURRENT_LIMIT; // 최대 전류로 제한
 
         // 방전 FET 제어 (system_state에 따른 1초 지연)
         if (system_state == STATE_STOP)
         {
-            I_ss = 0; // 소프트 스타트 리셋
+            soft_start_limit = 0; // 소프트 스타트 리셋
         }
 
         if (system_state == STATE_RUNNING)
@@ -991,37 +979,9 @@ void ParseModbusData(void)
     else if (usRegHoldingBuf[0] == 0x10) // 0x10 = 정지 명령
         system_state = STATE_STOP;       // 정지
 
-    // 충전/방전 모드 설정 (강제로 64 설정)
-    usRegHoldingBuf[2] = 64; // 배터리 충전/방전 CC 모드 (64) 강제 설정
-    eChargeMode = (eCharge_DisCharge_Mode)usRegHoldingBuf[2];
-
-    // 운전 모드에 따른 설정값 처리
-    switch (eChargeMode)
-    {
-    case ElectronicLoad_CV_Mode: // 전자부하 CV 모드          (2)
-    case ElectronicLoad_CC_Mode: // 전자부하 CC 모드          (4)
-    case PowerSupply_CV_Mode:    // 전원공급 CV 모드         (16)
-    case PowerSupply_CC_Mode:    // 전원공급 CC 모드         (32)
-    case As_a_Battery_CV_Mode:   // 배터리 시뮬레이션 CV 모드 (128)
-        UI_V_cmd = usRegHoldingBuf[5];
-        UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8] << 16) | (Uint32)usRegHoldingBuf[7]);
-        break;
-
-    case ElectronicLoad_CR_Mode: // 전자부하 CR 모드          (8)
-        UI_V_cmd = usRegHoldingBuf[5];
-        UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8] << 16) | (Uint32)usRegHoldingBuf[7]);
-        load_resistance.u = (((Uint32)usRegHoldingBuf[10] << 16) | (Uint32)usRegHoldingBuf[9]);
-        break;
-
-    case Battery_Charg_Discharg_CC_Mode: // 배터리 충전/방전 CC 모드  (64)
-        V_max_lim = usRegHoldingBuf[5];
-        V_min_lim = usRegHoldingBuf[12];
-        UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8] << 16) | (Uint32)usRegHoldingBuf[7]);
-        break;
-
-    default:
-        break;
-    }
+    V_max_lim = usRegHoldingBuf[5];
+    V_min_lim = usRegHoldingBuf[12];
+    UI_I_cmd.u = (((Uint32)usRegHoldingBuf[8] << 16) | (Uint32)usRegHoldingBuf[7]);
 
     // 모듈 개수로 나눈 전류 지령 계산 및 제한 (-80A ~ +80A)
     I_cmd = UI_I_cmd.f / MODULE_COUNT;
@@ -1133,7 +1093,7 @@ void ControlFanPwm(void)
         fan_pwm_duty = 0.9;  // 최대 90%로 제한 (과부하 방지)
 
     // PWM 극성 반전: (1 - duty)로 설정
-    EPwm1Regs.CMPA.half.CMPA = (1. - fan_pwm_duty) * PWM_PERIOD_10k;
+    EPwm1Regs.CMPA.half.CMPA = (1.0f - fan_pwm_duty) * PWM_PERIOD_10k;
 }
 
 /**
@@ -1157,7 +1117,7 @@ void ControlFanPwm(void)
  *
  * @note Protocol 시스템은 별도 추가된 기능으로 기존 슬레이브 통신과 독립적
  */
-__interrupt void ecan0_isr(void)
+__interrupt void can_protocol_isr(void)
 {
     // Protocol 메일박스 30번 처리
     if (ECanaRegs.CANRMP.bit.RMP30 != 0)
