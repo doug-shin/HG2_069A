@@ -23,10 +23,10 @@ PROTOCOL_INTEGRATED protocol; // 프로토콜 구조체
 FLOAT_CONVERTER_UNION float_converter;
 
 // Heart Bit 타임아웃 관련 변수 정의
-Uint16 can_360_timeout_counter = 0; // Heart Bit 타임아웃 카운터
-Uint16 can_360_timeout_flag = 0;    // Heart Bit 타임아웃 플래그
+Uint16 heartbit_timeout_cnt = 0;    // Heart Bit 타임아웃 카운터
+Uint16 heartbit_timeout_flag = 0;   // Heart Bit 타임아웃 플래그
 Uint16 can_report_flag = 0;         // CAN 보고 플래그
-Uint16 can_report_counter = 0;      // CAN 보고 카운터
+Uint16 can_report_cnt = 0;          // CAN 보고 카운터
 Uint16 can_report_interval = 2000;  // CAN 보고 간격 (기본값: 100ms = 2000 * 0.05ms, 20kHz 주기)
 
 extern volatile struct ECAN_REGS ECanaShadow;
@@ -641,12 +641,12 @@ void TransitionToIdle(void)
 void CheckCANHeartBitTimeout(void)
 {
     // 1ms마다 호출된다고 가정
-    can_360_timeout_counter++;
+    heartbit_timeout_cnt++;
 
     // 1초(1000ms) 이상 Heart Bit 메시지가 수신되지 않으면 타임아웃으로 처리
-    if (can_360_timeout_counter >= 1000)
+    if (heartbit_timeout_cnt >= 1000)
     {
-        can_360_timeout_flag = 1;
+        heartbit_timeout_flag = 1;
 
         // 타임아웃 발생 시 필요한 처리 추가
         // 예: 오류 상태로 전환, 알람 발생 등

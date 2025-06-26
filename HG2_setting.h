@@ -34,7 +34,7 @@ extern "C" {
     //=============================================================================
     // GPIO 디지털 입력 변수들
     //=============================================================================
-    extern Uint16 Board_ID;     // DIP 스위치로부터 읽은 보드 ID (4비트)
+    extern Uint16 board_id;     // DIP 스위치로부터 읽은 보드 ID (4비트)
     extern Uint16 run_switch; // 운전 스위치 상태 (GPIO54)
 
 #define ACTIVE (1) // only use when a DAC board is inserted
@@ -44,26 +44,22 @@ extern "C" {
     void InitEPwm1(void);
     void InitEPwm3(void);
 
-    void gpio_config(void); // GPIO configuration
+    void GpioConfig(void); // GPIO configuration
     void AdcSetup(void);
 
-    void spi_fifo_init(void); // Initialize the Spi FIFO
-    void spi_init(void);      // init SPI
+    void SpiFifoConfig(void); // Initialize the Spi FIFO
+    void SpiConfig(void);      // init SPI
 
-    void scia_init(void);
-    void scia_fifo_init(void);
+    void InitScia(void);
+    void SciaFifoConfig(void);
 
     void ReadGpioInputs(void); // Read GPIO digital inputs
-    void eCana_config(void);   // CAN configuration
+    void ECanaConfig(void);   // CAN configuration
 
 #define PWM_PERIOD_10k 4500 //(FAN)        // TBPRD = HSCLK/(2*freq) = 90M/(2*10k) = 4500
 #define PWM_PERIOD_100k 900 // TBPRD = HSCLK/(2*freq) = 90M/(2*10k) = 4500
 
 #define EPWM_DB 27 // deadtime = 300n --> DB = 300n/(1/HSCLK) = 0.3u*90M = 27
-
-#define DUTY1_INIT PWM_PERIOD_10k * 0.0
-#define DUTY2_INIT PWM_PERIOD_10k * 0.0
-#define DUTY3_INIT PWM_PERIOD_10k * 0.0
 
 #ifdef __cplusplus
 }

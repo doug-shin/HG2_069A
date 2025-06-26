@@ -87,8 +87,8 @@ void InitEPwm1()
     EPwm1Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
 
     // 비교값 설정
-    EPwm1Regs.CMPA.half.CMPA = DUTY1_INIT; // 초기 듀티 설정
-    EPwm1Regs.CMPB = PWM_PERIOD_10k;       // PWM1B 초기 OFF
+    EPwm1Regs.CMPA.half.CMPA = 0;        // 초기 듀티 0% (팬 OFF)
+    EPwm1Regs.CMPB = PWM_PERIOD_10k;     // PWM1B 초기 OFF
 
     // 액션 설정 (NON-inverted PWM)
     EPwm1Regs.AQCTLA.bit.CAU = AQ_CLEAR; // CAU에서 Clear
@@ -204,7 +204,7 @@ void AdcSetup(void)
  * - Pull-up: DIP 스위치는 비활성화 (외부 풀업 사용)
  * - Input Qualification: GPIO54(Run Switch)에 노이즈 필터 적용
  */
-void gpio_config(void)
+void GpioConfig(void)
 {
     EALLOW;
 
@@ -237,7 +237,7 @@ void gpio_config(void)
     GpioCtrlRegs.GPBDIR.bit.GPIO55 = 0; // DIP Switch_3 (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO41 = 0; // DIP Switch_4 (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO53 = 0; // 외부 센싱 1 (입력)
-    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 0; // 외부 센싱 2 (DAB_OK) (입력)
+    GpioCtrlRegs.GPBDIR.bit.GPIO39 = 0; // 외부 센싱 2 (DAB 상태) (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO34 = 0; // 외부 센싱 3 (입력)
     GpioCtrlRegs.GPBDIR.bit.GPIO54 = 0; // 외부 스위치 (Run Switch) (입력)
 
@@ -254,7 +254,7 @@ void gpio_config(void)
 
     // 외부 신호 입력 (GPIO 모드)
     GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0; // 외부 센싱 1
-    GpioCtrlRegs.GPBMUX1.bit.GPIO39 = 0; // 외부 센싱 2 (DAB_OK)
+    GpioCtrlRegs.GPBMUX1.bit.GPIO39 = 0; // 외부 센싱 2 (DAB 상태)
     GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0; // 외부 센싱 3
     GpioCtrlRegs.GPBMUX2.bit.GPIO54 = 0; // 외부 스위치 (Run Switch)
 
@@ -300,10 +300,10 @@ void gpio_config(void)
 void ReadGpioInputs(void)
 {
     // Board ID 읽기 (DIP 스위치 4개를 비트 연산으로 조합)
-    Board_ID = (GpioDataRegs.GPADAT.bit.GPIO11 << 0) | // DIP Switch_1 (Bit0)
-               (GpioDataRegs.GPADAT.bit.GPIO10 << 1) | // DIP Switch_2 (Bit1)
+    board_id = (GpioDataRegs.GPBDAT.bit.GPIO41 << 3) | // DIP Switch_4 (Bit3)
                (GpioDataRegs.GPBDAT.bit.GPIO55 << 2) | // DIP Switch_3 (Bit2)
-               (GpioDataRegs.GPBDAT.bit.GPIO41 << 3);  // DIP Switch_4 (Bit3)
+               (GpioDataRegs.GPADAT.bit.GPIO10 << 1) | // DIP Switch_2 (Bit1)
+               (GpioDataRegs.GPADAT.bit.GPIO11);       // DIP Switch_1 (Bit0)
 
     // 운전 스위치 읽기 (하드웨어에서 이미 필터링된 값)
     run_switch = GpioDataRegs.GPBDAT.bit.GPIO54;
@@ -320,7 +320,7 @@ void ReadGpioInputs(void)
  * - 극성: CPOL=0, CPHA=0 (Mode 0)
  * - 용도: DAC 제어 및 ADC 데이터 읽기
  */
-void spi_init()
+void SpiConfig()
 {
     // SPI 소프트웨어 리셋
     SpiaRegs.SPICCR.bit.SPISWRESET = 0;
@@ -353,7 +353,7 @@ void spi_init()
  * - RX FIFO: 4워드 후 인터럽트, FIFO 활성화
  * - 지연: 없음
  */
-void spi_fifo_init()
+void SpiFifoConfig()
 {
     SpiaRegs.SPIFFTX.all = 0xE040; // TX FIFO: 클리어 & 활성화
     SpiaRegs.SPIFFRX.all = 0x2044; // RX FIFO: 4워드 인터럽트 & 활성화
@@ -365,7 +365,7 @@ void spi_fifo_init()
  * - F28069 전용 설정 (4-level FIFO)
  * - TX/RX FIFO 활성화
  */
-void scia_fifo_init(void)
+void SciaFifoConfig(void)
 {
     SciaRegs.SCIFFTX.all = 0xE040; // TX FIFO 설정
     SciaRegs.SCIFFRX.all = 0x2041; // RX FIFO 설정
@@ -380,7 +380,7 @@ Uint16 sci_baud_capture = 0;
  * - 모드: 비동기, Idle-line 프로토콜
  * - 용도: Modbus RTU 통신
  */
-void scia_init(void)
+void InitScia(void)
 {
     // SCI 기본 설정
     SciaRegs.SCICCR.all = 0x0007;      // 1 정지비트, 루프백 없음
@@ -405,7 +405,7 @@ void scia_init(void)
 
 extern struct ECAN_REGS ECanaShadow;
 
-void eCana_config(void)
+void ECanaConfig(void)
 {
     EALLOW;
 

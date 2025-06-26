@@ -305,10 +305,10 @@ void CheckCANHeartBitTimeout(void);
 // Heart Bit 관련 전역 변수 선언
 extern Uint16 can_360_msg_count;       // Heart Bit 메시지 수신 횟수
 extern Uint16 can_360_last_count;      // 마지막으로 수신한 Heart Bit 카운트 값
-extern Uint16 can_360_timeout_counter; // Heart Bit 타임아웃 카운터
-extern Uint16 can_360_timeout_flag;    // Heart Bit 타임아웃 플래그
+extern Uint16 heartbit_timeout_cnt;    // Heart Bit 타임아웃 카운터
+extern Uint16 heartbit_timeout_flag;   // Heart Bit 타임아웃 플래그
 
-extern Uint16 hw_fault;
+extern Uint16 hw_fault_flag;
 extern float32 V_fb;
 extern Uint16 over_voltage_flag;
 
@@ -317,7 +317,7 @@ extern PROTOCOL_INTEGRATED protocol; // 프로토콜 구조체
 
 // CAN 보고 관련 변수 (protocol.c에서 정의됨)
 extern Uint16 can_report_flag;     // CAN 보고 플래그
-extern Uint16 can_report_counter;  // CAN 보고 카운터
+extern Uint16 can_report_cnt;      // CAN 보고 카운터
 extern Uint16 can_report_interval; // CAN 보고 간격
 
 // float32 <-> Uint32 변환용 union 타입 정의

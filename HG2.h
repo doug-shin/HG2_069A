@@ -80,9 +80,9 @@
 #define DISCHARGE_FET_OFF() (GpioDataRegs.GPADAT.bit.GPIO19 = 1)  ///< 방전 FET 끄기 (Active Low)
 
 // DAB (Dual Active Bridge) 상태 매크로
-#define DAB_OK_READ() (GpioDataRegs.GPBDAT.bit.GPIO39)             ///< DAB_OK 신호 읽기 (1: OK, 0: Fault)
-#define IS_DAB_OK() (GpioDataRegs.GPBDAT.bit.GPIO39 == 1)         ///< DAB 정상 상태 확인
-#define IS_DAB_FAULT() (GpioDataRegs.GPBDAT.bit.GPIO39 == 0)      ///< DAB 폴트 상태 확인
+#define DAB_CHECK() (GpioDataRegs.GPBDAT.bit.GPIO39)              ///< DAB 상태 확인 (1: OK, 0: Fault)
+#define DAB_OK() (GpioDataRegs.GPBDAT.bit.GPIO39 == 1)            ///< DAB 정상 상태 확인
+#define DAB_FAULT() (GpioDataRegs.GPBDAT.bit.GPIO39 == 0)         ///< DAB 폴트 상태 확인
 
 #define LED2_ON() (GpioDataRegs.GPBSET.bit.GPIO57 = 1)            ///< LED2 켜기
 #define LED2_OFF() (GpioDataRegs.GPBCLEAR.bit.GPIO57 = 1)         ///< LED2 끄기
@@ -127,48 +127,13 @@ typedef enum
 
 /**
  * @brief DAB 하드웨어 폴트 상태 열거형
- * @details DAB_OK 신호 기반 하드웨어 폴트 상태 관리
+ * @details DAB 상태 기반 하드웨어 폴트 상태 관리
  */
 typedef enum
 {
-    DAB_STATUS_OK = 0,     ///< DAB 정상 상태
-    DAB_STATUS_FAULT = 1   ///< DAB 폴트 상태
-} DAB_FAULT_STATUS;
-
-/**
- * @brief 충전/방전 모드 열거형
- * @details Modbus를 통해 제어 컴퓨터에서 설정되는 운전 모드
- */
-typedef enum
-{
-    No_Selection = 0,                    ///< 모드 선택 안함
-    ElectronicLoad_CV_Mode = 2,          ///< 전자부하 정전압 모드
-    ElectronicLoad_CC_Mode = 4,          ///< 전자부하 정전류 모드
-    ElectronicLoad_CR_Mode = 8,          ///< 전자부하 정저항 모드
-    PowerSupply_CV_Mode = 16,            ///< 전원공급 정전압 모드
-    PowerSupply_CC_Mode = 32,            ///< 전원공급 정전류 모드
-    Battery_Charg_Discharg_CC_Mode = 64, ///< 배터리 충방전 정전류 모드
-    As_a_Battery_CV_Mode = 128           ///< 배터리 시뮬레이션 정전압 모드
-} eCharge_DisCharge_Mode;
-
-/**
- * @brief USART 전송 주기 열거형
- * @details 통신 주기 설정을 위한 열거형 (현재 미사용)
- */
-typedef enum
-{
-    e1000ms = 100000, ///< 1Hz
-    e100ms = 10000,   ///< 10Hz
-    e10ms = 1000,     ///< 100Hz
-    e1ms = 100,       ///< 1kHz
-    e0_5ms = 50,      ///< 2kHz
-    e0_2ms = 20,      ///< 5kHz
-    e100us = 10,      ///< 10kHz
-    e50us = 5,        ///< 20kHz
-    e0_01ms = 1       ///< 100kHz, 10us
-} eConfig_USART_send_period;
-
-void modbus_parse(void);
+    STATUS_OK = 0,     ///< DAB 정상 상태
+    STATUS_FAULT = 1   ///< DAB 폴트 상태
+} DAB_STATUS;
 
 #ifdef _MAIN_C_
 
@@ -182,9 +147,7 @@ void modbus_parse(void);
  */
 
 // System State Control
-eCharge_DisCharge_Mode eChargeMode = Battery_Charg_Discharg_CC_Mode; ///< 충전/방전 모드 (기본: CC 모드)
 SYSTEM_STATE system_state = STATE_STOP;                              ///< 시스템 운전 상태 (정지/운전)
-eConfig_USART_send_period USART_send_period = e50us;                 ///< USART 전송 주기 (50us)
 
 // Debug and Monitoring
 Uint32 main_loop_cnt = 0; ///< 메인 루프 카운터 (디버깅용)
@@ -233,8 +196,8 @@ Uint16 I_cmd_DAC = 0; ///< 전류 지령 DAC 값 (0~4095)
  */
 
 // Voltage Commands and Limits
-float32 V_max_lim = 0.0f; ///< 고전압 지령 (충전 모드용)
-float32 V_min_lim = 0.0f; ///< 저전압 지령 (방전 모드용)
+float32 V_max_lim = 0.0f;   ///< 고전압 지령 (충전 모드용)
+float32 V_min_lim = 0.0f;   ///< 저전압 지령 (방전 모드용)
 float32 V_batt_avg = 0.0f;  ///< 배터리 평균 전압
 
 // Voltage Sensing and ADC
@@ -357,13 +320,13 @@ Uint16 parse_mb_flag = 0; ///< Modbus 파싱 플래그 (10ms 주기)
  */
 
 // Hardware Fault Detection
-Uint16 hw_fault = 0;                ///< 통합 하드웨어 폴트 플래그 (0: OK, 1: Fault)
-DAB_FAULT_STATUS dab_fault_current = DAB_STATUS_OK;  ///< 현재 DAB 폴트 상태
-DAB_FAULT_STATUS dab_fault_previous = DAB_STATUS_OK; ///< 이전 DAB 폴트 상태 (연속 감지용)
+Uint16 hw_fault_flag = 0;            ///< 통합 하드웨어 폴트 플래그 (0: OK, 1: Fault)
+DAB_STATUS dab_current = STATUS_OK;  ///< 현재 DAB 폴트 상태
+DAB_STATUS dab_previous = STATUS_OK; ///< 이전 DAB 폴트 상태 (연속 감지용)
 
 // Digital Input Status
 Uint16 run_switch = 0;              ///< 운전 스위치 상태 (GPIO54)
-Uint16 Board_ID = 0;                ///< 보드 ID (DIP 스위치 4비트)
+Uint16 board_id = 0;                ///< 보드 ID (DIP 스위치 4비트)
 
 /** @} */
 
@@ -381,8 +344,8 @@ Uint16 Board_ID = 0;                ///< 보드 ID (DIP 스위치 4비트)
  */
 
 __interrupt void adc_isr(void);             ///< ADC 변환 완료 인터럽트 (온도/전류/전압)
-__interrupt void epwm3_isr(void);           ///< ePWM3 인터럽트 (100kHz, 메인 제어 루프)
-__interrupt void ecan0_isr(void);           ///< CAN 인터럽트 (슬레이브 + Protocol)
+__interrupt void control_loop_isr(void);    ///< 제어 루프 인터럽트 (100kHz, 메인 제어 루프)
+__interrupt void can_protocol_isr(void);    ///< CAN 프로토콜 인터럽트 (슬레이브 + Protocol)
 __interrupt void scibRxReadyISR(void);      ///< SCI-B 수신 인터럽트 (Modbus RTU)
 __interrupt void scibTxEmptyISR(void);      ///< SCI-B 송신 인터럽트 (Modbus RTU)
 __interrupt void cpuTimer1ExpiredISR(void); ///< CPU Timer 1 인터럽트 (Modbus 타이밍)
@@ -400,7 +363,6 @@ __interrupt void cpuTimer1ExpiredISR(void); ///< CPU Timer 1 인터럽트 (Modbu
 
 // DCL-Based PI Controllers (TI DCL Library)
 void InitDCLControllers(void);                                   ///< DCL PI 컨트롤러 초기화
-void PIControlDCL(void);                                         ///< DCL 기반 PI 제어 (65% 성능 향상)
 extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk); ///< DCL 어셈블리 함수
 
 /** @} */
@@ -429,7 +391,7 @@ void Calc_V_fb_avg(void);  ///< 전압 평균 계산 (10000회 평균)
  * @{
  */
 
-void ProcessDABFault(void);     ///< DAB 폴트 감지 및 처리 (연속 감지 방식)
+void CheckDABFault(void);     ///< DAB 폴트 감지 및 처리 (연속 감지 방식)
 void ClearHardwareFaults(void); ///< 하드웨어 폴트 클리어 (운전 스위치 OFF 시)
 Uint16 IsSystemSafeToRun(void); ///< 시스템 운전 안전성 확인
 
@@ -458,7 +420,6 @@ void ControlFanPwm(void); ///< 팬 PWM 제어 (온도 비례, 15~90%)
  */
 
 void ParseModbusData(void);                 ///< Modbus 데이터 파싱 (전류/전압 지령, 모드 설정)
-void modbus_parse(void);                    ///< Modbus 파싱 (외부 함수)
 
 /** @} */
 
@@ -473,8 +434,8 @@ void modbus_parse(void);                    ///< Modbus 파싱 (외부 함수)
 
 void InitEPwm1(void);   ///< ePWM1 초기화 (팬 PWM, 10kHz)
 void InitEPwm3(void);   ///< ePWM3 초기화 (메인 제어 타이밍, 100kHz)
-void SpiInit(void);     ///< SPI 초기화 (ADC/DAC 통신, 11.25MHz)
-void eCanaConfig(void); ///< CAN 설정 (슬레이브 피드백, 500kbps)
+void SpiConfig(void);   ///< SPI 초기화 (ADC/DAC 통신, 11.25MHz)
+void ECanaConfig(void); ///< CAN 설정 (슬레이브 피드백, 500kbps)
 
 /** @} */
 
@@ -491,9 +452,7 @@ void eCanaConfig(void); ///< CAN 설정 (슬레이브 피드백, 500kbps)
 //-----------------------------------------------------------------------------
 // System Control Variables
 //-----------------------------------------------------------------------------
-extern eCharge_DisCharge_Mode eChargeMode;          ///< 운전 모드
 extern SYSTEM_STATE system_state;                   ///< 시스템 운전 상태
-extern eConfig_USART_send_period USART_send_period; ///< USART 전송 주기
 
 //-----------------------------------------------------------------------------
 // Sensing Data Variables
@@ -511,13 +470,13 @@ extern float32 I_cmd_final; ///< 최종 전류 지령 (PI 제한 적용, A)
 //-----------------------------------------------------------------------------
 // Hardware Safety Variables  
 //-----------------------------------------------------------------------------
-extern Uint16 hw_fault;                ///< 통합 하드웨어 폴트 플래그
-extern DAB_FAULT_STATUS dab_fault_current;  ///< 현재 DAB 폴트 상태
-extern DAB_FAULT_STATUS dab_fault_previous; ///< 이전 DAB 폴트 상태
+extern Uint16 hw_fault_flag;                ///< 통합 하드웨어 폴트 플래그
+extern DAB_STATUS dab_current;  ///< 현재 DAB 폴트 상태
+extern DAB_STATUS dab_previous; ///< 이전 DAB 폴트 상태
 extern Uint16 run_switch;              ///< 운전 스위치 상태
-extern Uint16 Board_ID;                ///< 보드 ID (DIP 스위치)
+extern Uint16 board_id;                ///< 보드 ID (DIP 스위치)
 extern Uint16 can_report_flag;         ///< CAN 보고 플래그
-extern Uint16 can_report_counter;      ///< CAN 보고 타이밍 카운터
+extern Uint16 can_report_cnt;      ///< CAN 보고 타이밍 카운터
 extern Uint16 can_report_interval;     ///< CAN 보고 간격
 
 //-----------------------------------------------------------------------------
