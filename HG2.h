@@ -133,7 +133,7 @@ typedef enum
 {
     STATUS_OK = 0,     // DAB 정상 상태
     STATUS_FAULT = 1   // DAB 폴트 상태
-} DAB_STATUS;
+} FAULT_STATUS;
 
 #ifdef _MAIN_C_
 
@@ -321,8 +321,8 @@ Uint16 parse_mb_flag = 0; // Modbus 파싱 플래그 (10ms 주기)
 
 // Hardware Fault Detection
 Uint16 hw_fault_flag = 0;            // 통합 하드웨어 폴트 플래그 (0: OK, 1: Fault)
-DAB_STATUS dab_current = STATUS_OK;  // 현재 DAB 폴트 상태
-DAB_STATUS dab_previous = STATUS_OK; // 이전 DAB 폴트 상태 (연속 감지용)
+FAULT_STATUS dab_current = STATUS_OK;  // 현재 DAB 폴트 상태
+FAULT_STATUS dab_previous = STATUS_OK; // 이전 DAB 폴트 상태 (연속 감지용)
 
 // Digital Input Status
 Uint16 run_switch = 0;              // 운전 스위치 상태 (GPIO54)
@@ -471,8 +471,8 @@ extern float32 I_cmd_final; // 최종 전류 지령 (PI 제한 적용, A)
 // Hardware Safety Variables  
 //-----------------------------------------------------------------------------
 extern Uint16 hw_fault_flag;                // 통합 하드웨어 폴트 플래그
-extern DAB_STATUS dab_current;  // 현재 DAB 폴트 상태
-extern DAB_STATUS dab_previous; // 이전 DAB 폴트 상태
+extern FAULT_STATUS dab_current;  // 현재 DAB 폴트 상태
+extern FAULT_STATUS dab_previous; // 이전 DAB 폴트 상태
 extern Uint16 run_switch;              // 운전 스위치 상태
 extern Uint16 board_id;                // 보드 ID (DIP 스위치)
 extern Uint16 can_report_flag;         // CAN 보고 플래그

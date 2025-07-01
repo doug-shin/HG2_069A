@@ -563,77 +563,59 @@ static void pi_control_task(void)
 }
 
 /**
+ * @brief RS485 전류 지령 전송 함수 (코드 중복 제거)
+ * @param dac_value 전송할 DAC 값 (0~4095)
+ */
+/**
+ * @brief RS485 네트워크로 전류 지령 브로드캐스트 (병렬 모듈 동기화용)
+ *
+ * @param dac_value 전송할 DAC 값 (0~4095)
+ *
+ * @details
+ * ** 목적: 병렬 연결된 슬레이브 모듈들에게 동일한 전류 지령 전송 **
+ * - 마스터 모듈(이 모듈)이 계산한 전류 지령을 모든 슬레이브에 브로드캐스트
+ * - 모든 모듈이 동일한 전류로 동작하여 전류 분담 및 안정성 확보
+ * - 주기: 20kHz (Case 2에서 호출)
+ * 
+ * ** 프로토콜 구조 (4바이트) **
+ * - STX (0x02): 시작 문자
+ * - Data Low: DAC 값 하위 8비트 (0~255)
+ * - Data High: DAC 값 상위 8비트 (0~15, 12비트 DAC의 상위 4비트만 사용)
+ * - ETX (0x03): 종료 문자
+ * 
+ * ** 데이터 의미 **
+ * - 0: 최대 회생 (-80A)
+ * - 2000: 전류 없음 (0A) 
+ * - 4000: 최대 방전 (+80A)
+ * - 4095: DAC 최대값 (하드웨어 제한)
+ */
+static inline void send_current_command_rs485(Uint16 dac_value)
+{
+    // RS485 브로드캐스트: 병렬 모듈 동기화를 위한 전류 지령 전송
+    SciaRegs.SCITXBUF = STX;                               // 시작 문자 (0x02)
+    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+    
+    SciaRegs.SCITXBUF = (dac_value & 0xFF);                // 전류 지령 하위 바이트 (0~255)
+    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+    
+    SciaRegs.SCITXBUF = ((dac_value >> 8) & 0xFF);         // 전류 지령 상위 바이트 (실제 0~15, 12비트)
+    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+    
+    SciaRegs.SCITXBUF = ETX;                               // 종료 문자 (0x03)
+    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+}
+
+/**
  * @brief Case 2: 전류 지령 처리 및 통신 태스크 (20kHz)
  * @details 소프트 스타트, DAC 출력, RS485 통신, 안전 처리
  */
 static void current_control_task(void)
 {
-    // 소프트 스타트 제한 처리
-    if (I_cmd > soft_start_limit)
-        I_cmd_ss = soft_start_limit;
-    else if (I_cmd < -soft_start_limit)
-        I_cmd_ss = -soft_start_limit;
-    else
-        I_cmd_ss = I_cmd;
-
-    // PI 출력 제한 적용
-    if (I_cmd_ss > V_max_PI)
-        I_cmd_final = V_max_PI;
-    else if (I_cmd_ss < V_min_PI)
-        I_cmd_final = V_min_PI;
-    else
-        I_cmd_final = I_cmd_ss;
-
-    // 소프트 스타트 처리
-    // 0.00005 = 램프업 기울기 (80A/1.6초, 50us마다 0.004A 증가)
-    soft_start_limit += CURRENT_LIMIT * 0.00005f;
-    if (soft_start_limit > CURRENT_LIMIT)
-        soft_start_limit = CURRENT_LIMIT; // 최대 전류로 제한
-
-    // 방전 FET 제어 (system_state에 따른 1초 지연)
-    if (system_state == STATE_STOP)
-    {
-        soft_start_limit = 0; // 소프트 스타트 리셋
-    }
-
-    if (system_state == STATE_RUNNING)
-    {
-        // 20000 = 1초 지연 (20kHz × 1초)
-        if (discharge_fet_delay_cnt++ >= 20000)
-        { // 운전 시작 1초 후 방전 FET OFF (안전성 확보)
-            discharge_fet_delay_cnt = 20000; // 카운터 포화 방지
-            DISCHARGE_FET_OFF(); // 방전 FET 끄기
-        }
-    }
-    else
-    {
-        discharge_fet_delay_cnt = 0; // 카운터 리셋
-        DISCHARGE_FET_ON(); // 방전 FET 켜기 (즉시, 지연 없음)
-    }
-
-    // DAC 출력값 계산 및 제한
-    // 25.0 = 전류→DAC 스케일링 팩터 (50 * 0.5, 원본: I_com_set * 50 * 0.5f)
-    // 2000 = DAC 제로점 (0A 지령 시 DAC 출력값)
-    // 1.0005 = DAC 보정계수 (하드웨어 캘리브레이션)
-    // 방전 모드(+80A): DAC 4000, 회생 모드(-80A): DAC 0
-    I_cmd_DAC = (I_cmd_final * 25.0f + 2000.0f) * 1.0005f;
-    if (I_cmd_DAC > 4095)
-        I_cmd_DAC = 4095; // DAC 상한 제한 (12비트)
-
-    // RS485 통신 데이터 직접 전송 (전송 완료 대기 포함)
-    SciaRegs.SCITXBUF = STX;                               // 시작 문자 (0x02)
-    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
+    //=========================================================================
+    // 1. 시스템 안전성 확인 및 운전 상태 결정 (우선 처리)
+    //=========================================================================
     
-    SciaRegs.SCITXBUF = (I_cmd_DAC & 0xFF);                // 전류 지령 하위 바이트
-    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
-    
-    SciaRegs.SCITXBUF = ((I_cmd_DAC >> 8) & 0xFF);         // 전류 지령 상위 바이트
-    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
-    
-    SciaRegs.SCITXBUF = ETX;                               // 종료 문자 (0x03)
-    while (SciaRegs.SCICTL2.bit.TXRDY == 0);               // 전송 완료 대기
-
-    // 과전압 보호
+    // 과전압 보호 (안전성 체크 우선)
     if (V_out >= OVER_VOLTAGE)
         over_voltage_flag = 1;
 
@@ -642,12 +624,77 @@ static void current_control_task(void)
     {
         system_state = STATE_RUNNING;
         BUCK_ENABLE(); // Buck 컨버터 활성화
+
+        //=====================================================================
+        // 2. 운전 상태: 소프트 스타트 및 제어 로직 실행
+        //=====================================================================
+        
+        // 소프트 스타트 램프업 처리 (운전 중일 때만)
+        // 0.00005 = 램프업 기울기 (80A/1.6초, 50us마다 0.004A 증가)
+        soft_start_limit += CURRENT_LIMIT * 0.00005f;
+        if (soft_start_limit > CURRENT_LIMIT)
+            soft_start_limit = CURRENT_LIMIT; // 최대 전류로 제한
+
+        // 소프트 스타트 제한 처리
+        if (I_cmd > soft_start_limit)
+            I_cmd_ss = soft_start_limit;
+        else if (I_cmd < -soft_start_limit)
+            I_cmd_ss = -soft_start_limit;
+        else
+            I_cmd_ss = I_cmd;
+
+        // PI 출력 제한 적용
+        if (I_cmd_ss > V_max_PI)
+            I_cmd_final = V_max_PI;
+        else if (I_cmd_ss < V_min_PI)
+            I_cmd_final = V_min_PI;
+        else
+            I_cmd_final = I_cmd_ss;
+
+        // 방전 FET 제어 (운전 시작 후 1초 지연)
+        // 20000 = 1초 지연 (20kHz × 1초)
+        if (discharge_fet_delay_cnt++ >= 20000)
+        {
+            DISCHARGE_FET_OFF(); // 방전 FET 끄기
+        }
+
+        // DAC 출력값 계산 및 제한
+        // 25.0 = 전류→DAC 스케일링 팩터 (50 * 0.5, 원본: I_com_set * 50 * 0.5f)
+        // 2000 = DAC 제로점 (0A 지령 시 DAC 출력값)
+        // 1.0005 = DAC 보정계수 (하드웨어 캘리브레이션)
+        // 방전 모드(+80A): DAC 4000, 회생 모드(-80A): DAC 0
+        I_cmd_DAC = (I_cmd_final * 25.0f + 2000.0f) * 1.0005f;
+        if (I_cmd_DAC > 4095)
+            I_cmd_DAC = 4095; // DAC 상한 제한 (12비트)
     }
     else
     {
+        //=====================================================================
+        // 2. 정지 상태: 즉시 초기화 및 안전 처리
+        //=====================================================================
+        
         system_state = STATE_STOP;
         BUCK_DISABLE(); // Buck 컨버터 비활성화
+        
+        // 정지 상태일 때 즉시 초기화 (타이밍 이슈 해결)
+        soft_start_limit = 0.0f;        // 소프트 스타트 리셋
+        discharge_fet_delay_cnt = 0;     // 방전 FET 지연 카운터 리셋
+        I_cmd_ss = 0.0f;                 // 소프트 스타트 제한 전류 리셋
+        I_cmd_final = 0.0f;              // 최종 전류 지령 리셋
+        I_cmd_DAC = 2000;                // DAC 출력을 0A 지령으로 리셋
+        
+        DISCHARGE_FET_ON(); // 방전 FET 켜기 (즉시, 안전성 확보)
     }
+
+    //=========================================================================
+    // 3. 병렬 모듈 동기화: RS485 네트워크로 전류 지령 브로드캐스트
+    //=========================================================================
+    // ** 목적: 마스터-슬레이브 병렬 운전 시스템 구현 **
+    // - 이 모듈(마스터)이 계산한 I_cmd_DAC를 모든 슬레이브 모듈에 전송
+    // - 운전/정지 상태 무관하게 항상 전송하여 동기화 유지
+    // - 모든 모듈이 동일한 전류 지령으로 동작 → 전류 분담 및 안정성 확보
+    // - 전송 주기: 20kHz (50μs마다) - 실시간 동기화
+    send_current_command_rs485(I_cmd_DAC);
 }
 
 /**
@@ -665,11 +712,15 @@ static void temperature_monitoring_task(void)
     // 전압 평균값 계산
     Calc_V_fb_avg();
 
-    // CAN 보고 타이밍 관리 (0.05ms 단위로 카운트)
+    // CAN 메시지 전송 주기 관리 (실제 메시지 전송 타이밍)
+    // ** can_report_interval 설정값 **
+    // - 운전 중: 200 (10ms = 200 × 0.05ms) → 100Hz 전송
+    // - 대기 중: 2000 (100ms = 2000 × 0.05ms) → 10Hz 전송
+    // - 프로토콜 규격: 100번대(10ms), 110번대(100ms)에 맞춤
     if (can_report_cnt++ >= can_report_interval)
     {
         can_report_cnt = 0;
-        can_report_flag = 1; // 메인 루프에서 처리
+        can_report_flag = 1; // 메인 루프에서 실제 CAN 메시지 전송
     }
 }
 
@@ -720,11 +771,11 @@ static void (*control_task_functions[])(void) = {
  * - **Case 3**: 온도 처리 및 CAN 보고 (20kHz)
  * - **Case 4**: 평균 계산 및 팬 제어 (20kHz)
  *
- * @section communication_handling 통신 처리
- * - **SPI ADC**: 매 인터럽트마다 전류 ADC 데이터 읽기 (100kHz)
- * - **RS485**: Case 2에서 전류 지령 브로드캐스팅 (20kHz)
- * - **CAN 타이밍**: 1kHz 전송 타이밍 관리
- * - **DAC 출력**: 매 인터럽트마다 전류 지령 DAC 출력 (100kHz)
+ * @section communication_handling 통신 처리 (이중 DAC 지령 시스템)
+ * - **로컬 SPI DAC**: 매 인터럽트마다 자신의 전류 제어용 DAC 출력 (100kHz)
+ * - **네트워크 RS485**: Case 2에서 병렬 모듈들에게 지령 브로드캐스트 (20kHz)
+ * - **SPI ADC**: 매 인터럽트마다 전압/전류 센서 데이터 읽기 (100kHz)
+ * - **CAN 프로토콜**: 상위 제어기와의 통신 (500kbps, 메시지: 운전시 100Hz/대기시 10Hz)
  *
  * @section safety_features 안전 기능
  * - 하드웨어 폴트 감지 (GPIO 기반)
@@ -740,12 +791,17 @@ __interrupt void control_loop_isr(void) //100kHz 호출
     control_loop_cnt++;
 
     //=========================================================================
-    // 1. CAN 전송 타이밍 관리 (1kHz)
+    // 1. CAN 메시지 전송 타이밍 체크 (1ms 주기)
     //=========================================================================
-    if (can_tx_cnt++ >= 100) // 1ms 마다 CAN 전송
+    // ** CAN 통신 구조 **
+    // - 버스 속도: 500kbps (물리적 통신 속도)
+    // - 타이밍 체크: 1ms마다 (여기서 수행)
+    // - 실제 메시지 전송: can_report_interval에 의해 결정
+    //   운전 중: 10ms (100Hz), 대기 중: 100ms (10Hz)
+    if (can_tx_cnt++ >= 100) // 100번 = 1ms (100kHz ÷ 100)
     {
         can_tx_cnt = 0;
-        can_tx_flag = 1; // 메인 루프에서 처리
+        can_tx_flag = 1; // 메인 루프에서 실제 전송 처리
     }
 
     //=========================================================================
@@ -799,13 +855,17 @@ __interrupt void control_loop_isr(void) //100kHz 호출
         ClearHardwareFaults();
 
     //=========================================================================
-    // 5. DAC 출력 및 SPI 정리
+    // 5. 로컬 DAC 출력 (자신의 모듈 전류 제어용)
     //=========================================================================
-    // DAC1 A채널에 전류 지령 출력 (12비트, 0~4095)
-    // 0xC000 = DAC1 A채널 쓰기 명령, 증폭 관련 스케일 저항은 0.1% 급 정밀도 필요
+    // ** 목적: 이 모듈의 전류 제어 회로에 아날로그 지령 출력 **
+    // - DAC1 A채널에 12비트 전류 지령 출력 (0~4095)
+    // - 0xC000: DAC1 A채널 쓰기 명령 (SPI 프로토콜)
+    // - I_cmd_DAC: 0=최대회생(-80A), 2000=0A, 4000=최대방전(+80A)
+    // - 출력 전압: 0V~3.3V (하드웨어 증폭기를 통해 전류 제어)
+    // - 주기: 100kHz (매 인터럽트마다 실시간 업데이트)
     SpiaRegs.SPITXBUF = 0xC000 | (I_cmd_DAC & 0xFFF);
 
-    ADC1_DS(); // ADC1_CS 비활성화
+    ADC1_DS(); // ADC1_CS 비활성화 (SPI 통신 완료)
 
     //=========================================================================
     // 6. 인터럽트 정리
@@ -1133,6 +1193,7 @@ void ClearHardwareFaults(void)
     hw_fault_flag = 0;
     dab_current = STATUS_OK;
     dab_previous = STATUS_OK;
+    over_voltage_flag = 0;
 }
 
 /**
