@@ -39,7 +39,6 @@
 // 헤더 파일 포함
 //*****************************************************************************
 #include "DSP28x_Project.h"
-#include "DCLF32.h"
 #include "HG2_setting.h"
 #include "modbus.h"
 #include "protocol.h"
