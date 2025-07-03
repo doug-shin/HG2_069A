@@ -9,6 +9,7 @@ MEMORY
 PAGE 0 :   /* Program Memory */
    RAML0       : origin = 0x008000, length = 0x000800     /* on-chip RAM block L0 */
    RAML1       : origin = 0x008800, length = 0x000400     /* on-chip RAM block L1 */
+   RAML3_CLA   : origin = 0x009000, length = 0x000400     /* CLA 프로그램 실행 영역 */
    OTP         : origin = 0x3D7800, length = 0x000400     /* on-chip OTP */
 
    FLASHH      : origin = 0x3D8000, length = 0x004000     /* on-chip FLASH */
@@ -36,13 +37,21 @@ PAGE 1 :   /* Data Memory */
    BOOT_RSVD   : origin = 0x000000, length = 0x000050     /* Part of M0, BOOT rom will use this for stack */
    RAMM0       : origin = 0x000050, length = 0x0003B0     /* on-chip RAM block M0 */
    RAMM1       : origin = 0x000400, length = 0x000400     /* on-chip RAM block M1 */
-   RAML2       : origin = 0x008C00, length = 0x000400     /* on-chip RAM block L2 */
-   RAML3       : origin = 0x009000, length = 0x001000	  /* on-chip RAM block L3 */
+   
+   /* CPU 전용 RAM 영역 */
+   RAML3       : origin = 0x009C00, length = 0x000400     /* CPU 전용 RAML3 나머지 */
    RAML4       : origin = 0x00A000, length = 0x002000     /* on-chip RAM block L4 */
    RAML5       : origin = 0x00C000, length = 0x002000     /* on-chip RAM block L5 */
    RAML6       : origin = 0x00E000, length = 0x002000     /* on-chip RAM block L6 */
    RAML7       : origin = 0x010000, length = 0x002000     /* on-chip RAM block L7 */
    RAML8       : origin = 0x012000, length = 0x002000     /* on-chip RAM block L8 */
+   
+   /* CLA 전용 메모리 영역 (기존 RAML1, RAML2 사용) */
+   CLARAM0     : origin = 0x008800, length = 0x000400     /* CLA Data RAM 0 (RAML1 재용도) */
+   CLARAM1     : origin = 0x008C00, length = 0x000400     /* CLA Data RAM 1 (RAML2 재용도) */
+   CLARAM2     : origin = 0x009800, length = 0x000400     /* CLA Data RAM 2 (RAML3 상위 재용도) */
+   CLA1_MSGRAMLOW  : origin = 0x001480, length = 0x000080     /* CLA to CPU Message RAM */
+   CLA1_MSGRAMHIGH : origin = 0x001500, length = 0x000080     /* CPU to CLA Message RAM */
 }
 
 SECTIONS
@@ -67,7 +76,7 @@ SECTIONS
    /* Allocate uninitialized data sections: */
    .stack              : > RAMM0,      PAGE = 1
    .ebss               : > RAML4,      PAGE = 1
-   .esysmem            : > RAML2,      PAGE = 1
+   .esysmem            : > RAML3,      PAGE = 1
 
    /* Initialized sections to go in Flash */
    .econst             : > FLASHA,     PAGE = 0
@@ -85,6 +94,35 @@ SECTIONS
    DMARAML6	           : > RAML6,      PAGE = 1
    DMARAML7	           : > RAML7,      PAGE = 1
    DMARAML8	           : > RAML8,      PAGE = 1   
+
+   /* CLA Sections */
+   .scratchpad         : > CLARAM0,   PAGE = 1
+   .bss_cla	           : > CLARAM0,   PAGE = 1
+   .const_cla	        : > CLARAM0,   PAGE = 1
+
+   Cla1Prog            : LOAD = FLASHD,
+                         RUN = RAML3_CLA,
+                         LOAD_START(_Cla1funcsLoadStart),
+                         LOAD_END(_Cla1funcsLoadEnd),
+                         LOAD_SIZE(_Cla1funcsLoadSize),
+                         RUN_START(_Cla1funcsRunStart),
+                         PAGE = 0
+
+   Cla1ToCpuMsgRAM     : > CLA1_MSGRAMLOW,   PAGE = 1
+   CpuToCla1MsgRAM     : > CLA1_MSGRAMHIGH,  PAGE = 1
+   Cla1DataRam0	       : > CLARAM0,	  PAGE = 1
+   Cla1DataRam1	       : > CLARAM1,	  PAGE = 1
+   Cla1DataRam2	       : > CLARAM2,	  PAGE = 1
+
+   CLA1mathTables      : > CLARAM1,
+                         LOAD_START(_Cla1mathTablesLoadStart),
+                         LOAD_END(_Cla1mathTablesLoadEnd),
+                         LOAD_SIZE(_Cla1mathTablesLoadSize),
+                         RUN_START(_Cla1mathTablesRunStart),
+                         PAGE = 1
+
+   /* CLA 스크래치패드 섹션 (128 바이트 고정 할당) */
+   CLAscratch          : > CLARAM0, PAGE = 1
 
    .reset              : > RESET,      PAGE = 0, TYPE = DSECT
    vectors             : > VECTORS,    PAGE = 0, TYPE = DSECT

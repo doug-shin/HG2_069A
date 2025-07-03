@@ -56,6 +56,11 @@ extern "C" {
 
     void InitScia(void);
     void SciaFifoConfig(void);
+    
+    void ConfigSciAGpio(void);  // SCI-A GPIO 설정 (RS485용)
+    void ConfigSciBGpio(void);  // SCI-B GPIO 설정 (Modbus RTU용)
+    void ConfigSpiaGpio(void);  // SPI-A GPIO 설정 (DAC/ADC용)
+    void ConfigLowSpeedClock(void);  // LOSPCP 설정 (90MHz)
 
     void ReadGpioInputs(void); // Read GPIO digital inputs
     void ECanaConfig(void);   // CAN configuration

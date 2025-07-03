@@ -228,15 +228,14 @@ Uint16 over_voltage_flag = 0; // 과전압 보호 플래그
 // 4. PI CONTROLLER PARAMETERS AND OUTPUTS
 //=============================================================================
 /**
- * @defgroup DCL_PI_Controller_Variables DCL PI 제어기 관련 변수
- * @brief TI DCL 라이브러리 기반 최적화된 PI 제어기 관련 변수들
+ * @defgroup CLA_PI_Controller_Variables CLA PI 제어기 관련 변수
+ * @brief TI DCL CLA 라이브러리 기반 최적화된 PI 제어기 관련 변수들
  * @{
  */
 
-// DCL PI Controllers (TI DCL Library) - 65% 성능 향상
-DCL_PI dcl_pi_charge;    // DCL 충전용 PI 컨트롤러 (V_max_lim 기준)
-DCL_PI dcl_pi_discharge; // DCL 방전용 PI 컨트롤러 (V_min_lim 기준)
-DCL_CSS dcl_css_common;  // DCL 공통 지원 구조체 (샘플링 시간, 에러 플래그)
+// CLA PI Controllers (TI DCL CLA Library) - CLA 하드웨어 가속
+// 실제 구조체는 HG2.c에서 CLA DataRAM에 배치됨
+// (주의: 이 선언들은 extern으로 변경됨)
 
 // DCL Controller Parameters (초기화 시 설정)
 #define DCL_KP (1.0f)       // DCL PI 비례 게인
@@ -361,9 +360,9 @@ __interrupt void cpuTimer1ExpiredISR(void); // CPU Timer 1 인터럽트 (Modbus 
  * @{
  */
 
-// DCL-Based PI Controllers (TI DCL Library)
-void InitDCLControllers(void);                                   // DCL PI 컨트롤러 초기화
-extern float32 DCL_runPI_C1(DCL_PI *pi, float32 rk, float32 yk); // DCL 어셈블리 함수
+// CLA-Based PI Controllers (TI DCL CLA Library)
+void InitCLA(void);              // CLA 하드웨어 초기화
+void InitDCLControllersCLA(void); // CLA PI 컨트롤러 초기화
 
 /** @} */
 
@@ -480,12 +479,10 @@ extern Uint16 can_report_cnt;      // CAN 보고 타이밍 카운터
 extern Uint16 can_report_interval;     // CAN 보고 간격
 
 //-----------------------------------------------------------------------------
-// DCL Controller Variables
+// CLA Controller Variables
 //-----------------------------------------------------------------------------
-extern DCL_PI dcl_pi_charge;      // DCL 충전용 PI 컨트롤러
-extern DCL_PI dcl_pi_discharge;   // DCL 방전용 PI 컨트롤러
-extern DCL_CSS dcl_css_common;    // DCL 공통 지원 구조체
-extern Uint16 use_dcl_controller; // DCL 제어기 사용 플래그 (0: 기존, 1: DCL)
+// CLA 공유 변수들은 HG2_CLA_shared.h에서 선언됨
+// 이 섹션은 추후 필요시 CLA 관련 변수 추가용으로 유지
 
 #endif //_MAIN_C_
 

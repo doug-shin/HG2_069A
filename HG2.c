@@ -97,10 +97,11 @@
 #include "DSP28x_Project.h"
 
 // DCL 라이브러리 (Digital Control Library)
-#include "DCLF32.h"
+#include "DCLCLA.h"
 
 // 프로젝트 헤더 파일
 #include "HG2.h"
+#include "HG2_CLA_shared.h"
 
 // CAN Protocol 관련 외부 변수 선언
 extern PROTOCOL_INTEGRATED protocol; // 프로토콜 구조체
@@ -112,6 +113,8 @@ void InitEPwm1(void);
 void InitEPwm3(void);
 void SpiConfig(void);
 void ECanaConfig(void);
+void InitCLA(void);
+void InitDCLControllersCLA(void);
 
 #pragma CODE_SECTION(cpuTimer1ExpiredISR, "ramfuncs");
 #pragma CODE_SECTION(scibRxReadyISR, "ramfuncs");
@@ -144,6 +147,32 @@ Uint16 force_reset_test = 0, fifo_err_cnt = 0;
 Uint16 can_tx_cnt = 0, can_tx_flag = 0;
 Uint16 can_rx_fault_cnt[11];
 Uint16 detect_module_num = 1;
+
+//=============================================================================
+// CLA 공유 변수 정의 (CPU ↔ CLA 데이터 교환용)
+//=============================================================================
+
+/* 충전용 PI 컨트롤러 공유 변수 (CPU → CLA) */
+#pragma DATA_SECTION(charge_rk, "CpuToCla1MsgRAM")
+#pragma DATA_SECTION(charge_yk, "CpuToCla1MsgRAM")
+#pragma DATA_SECTION(charge_uk, "Cla1ToCpuMsgRAM")
+float charge_rk = 0.0f;          // 충전 기준값 (V_max_lim)
+float charge_yk = 0.0f;          // 충전 피드백값 (V_out)
+float charge_uk = 0.0f;          // 충전 제어 출력값 (V_max_PI)
+
+/* 방전용 PI 컨트롤러 공유 변수 (CPU → CLA) */
+#pragma DATA_SECTION(discharge_rk, "CpuToCla1MsgRAM")
+#pragma DATA_SECTION(discharge_yk, "CpuToCla1MsgRAM")
+#pragma DATA_SECTION(discharge_uk, "Cla1ToCpuMsgRAM")
+float discharge_rk = 0.0f;       // 방전 기준값 (V_min_lim)
+float discharge_yk = 0.0f;       // 방전 피드백값 (V_out)
+float discharge_uk = 0.0f;       // 방전 제어 출력값 (V_min_PI)
+
+/* CLA PI 컨트롤러 구조체 (CLA Data RAM에 저장) */
+#pragma DATA_SECTION(dcl_pi_charge_cla, "Cla1DataRam1")
+#pragma DATA_SECTION(dcl_pi_discharge_cla, "Cla1DataRam1")
+DCL_PI_CLA dcl_pi_charge_cla = PI_CLA_DEFAULTS;
+DCL_PI_CLA dcl_pi_discharge_cla = PI_CLA_DEFAULTS;
 
 // CAN 메일박스 배열 포인터
 static struct MBOX *mbox_array = (struct MBOX *)&ECanaMboxes;
@@ -190,10 +219,14 @@ void main(void)
     //=========================================================================
     // 1. 시스템 제어 초기화 (PLL, 워치독, 주변장치 클럭)
     //=========================================================================
-    InitSysCtrl(); // 90MHz PLL 설정
+    InitSysCtrl(); // 90MHz PLL 설정 (TI 디바이스서포트 기본 함수)
+    ConfigLowSpeedClock(); // LOSPCP 설정 오버라이드 (22.5MHz → 90MHz)
 
     // Flash 운영을 위한 RAM으로 복사 (타이밍 크리티컬 코드)
     memcpy(&RamfuncsRunStart, &RamfuncsLoadStart, (Uint32)&RamfuncsLoadSize);
+    
+    // CLA 프로그램 Flash에서 RAM으로 복사
+    memcpy(&Cla1funcsRunStart, &Cla1funcsLoadStart, (Uint32)&Cla1funcsLoadSize);
 
     //=========================================================================
     // 2. GPIO 초기화
@@ -204,7 +237,7 @@ void main(void)
     // PWM 및 SPI GPIO 설정
     InitEPwm1Gpio();
     InitEPwm3Gpio();
-    InitSpiaGpio();
+    ConfigSpiaGpio();
 
     //=========================================================================
     // 3. 인터럽트 및 PIE 벡터 테이블 초기화
@@ -220,9 +253,13 @@ void main(void)
     //=========================================================================
     // 4. 시리얼 통신 초기화 (RS-232, RS-485)
     //=========================================================================
-    InitSciaGpio();
-    SciaFifoConfig();
-    InitScia();
+    // GPIO 초기화 (모든 통신 포트)
+    ConfigSciAGpio();  // SCI-A GPIO 초기화 (RS485용)
+    ConfigSciBGpio();  // SCI-B GPIO 초기화 (Modbus RTU용)
+    
+    // SCI-A 레지스터 설정
+    SciaFifoConfig();  // SCI-A FIFO 설정
+    InitScia();        // SCI-A 초기화
 
     EALLOW;
     En485_ON();
@@ -341,9 +378,10 @@ void main(void)
     }
 
     //=========================================================================
-    // 13. DCL PI 컨트롤러 초기화
+    // 13. CLA 및 DCL PI 컨트롤러 초기화
     //=========================================================================
-    InitDCLControllers(); // DCL 기반 PI 컨트롤러 초기화
+    InitCLA();              // CLA 하드웨어 초기화
+    InitDCLControllersCLA(); // CLA 기반 DCL PI 컨트롤러 초기화
 
     //=========================================================================
     // 14. 최종 시스템 활성화
@@ -466,17 +504,17 @@ void main(void)
 //=============================================================================
 
 /**
- * @brief DCL 기반 통합 PI 제어 함수 (고성능 최적화)
+ * @brief CLA 기반 통합 PI 제어 함수 (CLA 가속 최적화)
  *
- * @details 100kHz 인터럽트에서 호출되는 고성능 PI 제어 함수
- * - static inline으로 최적화: 함수 호출 오버헤드 제거 (8-12 cycles 절약)
- * - DCL_runPI_C1 어셈블리 함수 사용: 어셈블리 최적화 (65% 성능 향상)
- * - 적분기 상태는 전역 변수에 저장되어 지속적으로 유지됨
+ * @details 100kHz 인터럽트에서 호출되는 CLA 기반 PI 제어 함수
+ * - CLA Task 3/4에서 병렬 PI 제어 실행
+ * - DCL_runPI_L1 CLA 함수 사용: CLA 하드웨어 최적화
+ * - 적분기 상태는 CLA DataRAM에 저장되어 지속적으로 유지됨
  * 
  * @note 충전/방전 모드에 따라 적절한 컨트롤러 선택 및 bumpless transfer 구현
- * @note 적분기 상태: dcl_pi_charge.i10, dcl_pi_discharge.i10 (전역 변수)
+ * @note 적분기 상태: dcl_pi_charge_cla.i10, dcl_pi_discharge_cla.i10 (CLA 전용 변수)
  */
-static inline void PIControlDCL(void)
+static inline void PIControlCLA(void)
 {
     if (I_cmd >= 0)
     {
@@ -485,23 +523,32 @@ static inline void PIControlDCL(void)
         // =====================================================================
 
         // 동적 상한값 업데이트 (전류 제한에 따라)
-        dcl_pi_charge.Umax = I_cmd_ss;
+        dcl_pi_charge_cla.Umax = I_cmd_ss;
 
-        // DCL_runPI_C1 어셈블리 함수 실행 후 직접 할당 (최고 성능)
-        V_max_PI = DCL_runPI_C1(&dcl_pi_charge, V_max_lim, V_out);
+        // CLA 공유 변수 업데이트 (CPU → CLA 메시지 RAM)
+        charge_rk = V_max_lim;    // 기준값
+        charge_yk = V_out;        // 피드백값
+
+        // CLA Task 3 트리거: 충전용 PI 제어 실행
+        EALLOW;
+        Cla1ForceTask3andWait();
+        EDIS;
+
+        // CLA 계산 결과 읽기 (CLA → CPU 메시지 RAM)
+        V_max_PI = charge_uk;
 
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
-        V_max_error = V_max_lim - V_out;               // 에러 계산
-        V_max_kP_out = dcl_pi_charge.Kp * V_max_error; // 비례항
-        V_max_kI_out = dcl_pi_charge.i10;              // 적분항 상태
+        V_max_error = V_max_lim - V_out;                     // 에러 계산
+        V_max_kP_out = dcl_pi_charge_cla.Kp * V_max_error;   // 비례항
+        V_max_kI_out = dcl_pi_charge_cla.i10;                // 적분항 상태
 
         // 방전용 컨트롤러와의 bumpless transfer를 위한 상태 동기화
         // 방전 모드로 전환될 때 급격한 출력 변화 방지
-        dcl_pi_discharge.i10 = V_max_PI - dcl_pi_discharge.Kp * (V_min_lim - V_out);
-        if (dcl_pi_discharge.i10 > 2.0f)
-            dcl_pi_discharge.i10 = 2.0f;
-        else if (dcl_pi_discharge.i10 < I_cmd_ss)
-            dcl_pi_discharge.i10 = I_cmd_ss;
+        dcl_pi_discharge_cla.i10 = V_max_PI - dcl_pi_discharge_cla.Kp * (V_min_lim - V_out);
+        if (dcl_pi_discharge_cla.i10 > 2.0f)
+            dcl_pi_discharge_cla.i10 = 2.0f;
+        else if (dcl_pi_discharge_cla.i10 < I_cmd_ss)
+            dcl_pi_discharge_cla.i10 = I_cmd_ss;
     }
     else
     {
@@ -510,22 +557,31 @@ static inline void PIControlDCL(void)
         // =====================================================================
 
         // 동적 하한값 업데이트 (전류 제한에 따라)
-        dcl_pi_discharge.Umin = I_cmd_ss;
+        dcl_pi_discharge_cla.Umin = I_cmd_ss;
 
-        // DCL_runPI_C1 어셈블리 함수 실행 후 직접 할당 (최고 성능)
-        V_min_PI = DCL_runPI_C1(&dcl_pi_discharge, V_min_lim, V_out);
+        // CLA 공유 변수 업데이트 (CPU → CLA 메시지 RAM)
+        discharge_rk = V_min_lim; // 기준값
+        discharge_yk = V_out;     // 피드백값
+
+        // CLA Task 4 트리거: 방전용 PI 제어 실행
+        EALLOW;
+        Cla1ForceTask4andWait();
+        EDIS;
+
+        // CLA 계산 결과 읽기 (CLA → CPU 메시지 RAM)
+        V_min_PI = discharge_uk;
 
         // 기존 변수 호환성을 위한 할당 (디버깅 및 모니터링용)
-        V_min_error = V_min_lim - V_out;                  // 에러 계산
-        V_min_kP_out = dcl_pi_discharge.Kp * V_min_error; // 비례항
-        V_min_kI_out = dcl_pi_discharge.i10;              // 적분항 상태
+        V_min_error = V_min_lim - V_out;                         // 에러 계산
+        V_min_kP_out = dcl_pi_discharge_cla.Kp * V_min_error;   // 비례항
+        V_min_kI_out = dcl_pi_discharge_cla.i10;                // 적분항 상태
 
         // 충전용 적분기는 현재 PI 출력으로 초기화 (bumpless transfer)
-        dcl_pi_charge.i10 = V_min_PI - dcl_pi_charge.Kp * (V_max_lim - V_out);
-        if (dcl_pi_charge.i10 > I_cmd_ss)
-            dcl_pi_charge.i10 = I_cmd_ss;
-        else if (dcl_pi_charge.i10 < -2.0f)
-            dcl_pi_charge.i10 = -2.0f;
+        dcl_pi_charge_cla.i10 = V_min_PI - dcl_pi_charge_cla.Kp * (V_max_lim - V_out);
+        if (dcl_pi_charge_cla.i10 > I_cmd_ss)
+            dcl_pi_charge_cla.i10 = I_cmd_ss;
+        else if (dcl_pi_charge_cla.i10 < -2.0f)
+            dcl_pi_charge_cla.i10 = -2.0f;
     }
 }
 
@@ -554,12 +610,12 @@ static void voltage_sensing_task(void)
 
 /**
  * @brief Case 1: PI 제어 태스크 (20kHz)
- * @details DCL 기반 통합 PI 제어 (충전/방전 자동 선택)
+ * @details CLA 기반 통합 PI 제어 (충전/방전 자동 선택)
  */
 static void pi_control_task(void)
 {
-    // PI 제어기 실행
-    PIControlDCL(); // DCL 기반 최적화된 PI 제어
+    // CLA PI 제어기 실행
+    PIControlCLA(); // CLA 기반 최적화된 PI 제어
 }
 
 /**
@@ -893,47 +949,98 @@ __interrupt void adc_isr(void)
 }
 
 //=============================================================================
-// DCL PI Controller Functions (DCL 기반 PI 제어 함수들)
+// CLA PI Controller Functions (CLA 기반 PI 제어 함수들)
 //=============================================================================
 
 /**
- * @brief DCL PI 컨트롤러 초기화 함수
- * 충전/방전 모드별 독립적인 PI 컨트롤러를 초기화하고 파라미터를 설정
+ * @brief CLA 초기화 함수
+ * CLA 하드웨어 설정, 메모리 매핑, 태스크 벡터 초기화
  */
-void InitDCLControllers(void)
+void InitCLA(void)
 {
-    // DCL PI 구조체 기본값으로 초기화
-    dcl_pi_charge = (DCL_PI)PI_DEFAULTS;
-    dcl_pi_discharge = (DCL_PI)PI_DEFAULTS;
+    EALLOW;
 
-    // 공통 지원 구조체 초기화
-    dcl_css_common.T = DCL_TSAMPL; // 샘플링 시간 50us
-    dcl_css_common.err = 0;        // 에러 플래그 초기화
-    dcl_css_common.sts = 0;        // 상태 플래그 초기화
+    // CLA 태스크 벡터 설정 - CLA 프로그램 시작 주소 기준 오프셋
+    Cla1Regs.MVECT1 = (Uint16)((Uint32)&Cla1Task1 - (Uint32)&Cla1funcsRunStart);
+    Cla1Regs.MVECT2 = (Uint16)((Uint32)&Cla1Task2 - (Uint32)&Cla1funcsRunStart);
+    Cla1Regs.MVECT3 = (Uint16)((Uint32)&Cla1Task3 - (Uint32)&Cla1funcsRunStart); // 충전 PI
+    Cla1Regs.MVECT4 = (Uint16)((Uint32)&Cla1Task4 - (Uint32)&Cla1funcsRunStart); // 방전 PI
+    Cla1Regs.MVECT5 = (Uint16)((Uint32)&Cla1Task5 - (Uint32)&Cla1funcsRunStart);
+    Cla1Regs.MVECT6 = (Uint16)((Uint32)&Cla1Task6 - (Uint32)&Cla1funcsRunStart);
+    Cla1Regs.MVECT7 = (Uint16)((Uint32)&Cla1Task7 - (Uint32)&Cla1funcsRunStart);
+    Cla1Regs.MVECT8 = (Uint16)((Uint32)&Cla1Task8 - (Uint32)&Cla1funcsRunStart);
 
-    // 공통 지원 구조체 연결
-    dcl_pi_charge.css = &dcl_css_common;
-    dcl_pi_discharge.css = &dcl_css_common;
+    // CLA 태스크 트리거 소스 설정 (소프트웨어 트리거 사용)
+    Cla1Regs.MPISRCSEL1.bit.PERINT1SEL = CLA_INT1_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT2SEL = CLA_INT2_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT3SEL = CLA_INT3_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT4SEL = CLA_INT4_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT5SEL = CLA_INT5_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT6SEL = CLA_INT6_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT7SEL = CLA_INT7_NONE;
+    Cla1Regs.MPISRCSEL1.bit.PERINT8SEL = CLA_INT8_NONE;
+
+    // CLA 인터럽트 활성화
+    Cla1Regs.MIER.all = 0x00FF;
+
+    // CLA 메모리 설정
+    // - CLA 프로그램 공간 활성화
+    // - CLA 데이터 RAM 0, 1, 2 활성화
+    // - CPU에서 CLA RAM1 읽기 가능 (디버깅용)
+    Cla1Regs.MMEMCFG.all = CLA_PROG_ENABLE | CLARAM0_ENABLE | CLARAM1_ENABLE | CLARAM2_ENABLE | CLA_RAM1CPUE;
+
+    // CLA 인터럽트 ACK 활성화
+    Cla1Regs.MCTL.bit.IACKE = 1;
+
+    EDIS;
+
+    // CLA 초기화 확인을 위한 Task 8 실행
+    Cla1ForceTask8andWait();
+}
+
+/**
+ * @brief CLA PI 컨트롤러 초기화 함수
+ * 충전/방전 모드별 독립적인 CLA PI 컨트롤러를 초기화하고 파라미터를 설정
+ */
+void InitDCLControllersCLA(void)
+{
+    // CLA PI 구조체 기본값으로 초기화
+    dcl_pi_charge_cla = (DCL_PI_CLA)PI_CLA_DEFAULTS;
+    dcl_pi_discharge_cla = (DCL_PI_CLA)PI_CLA_DEFAULTS;
 
     //=========================================================================
-    // 충전용 PI 컨트롤러 설정
+    // 충전용 CLA PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_charge.Kp = DCL_KP;                  // 비례 게인
-    dcl_pi_charge.Ki = DCL_KI * DCL_TSAMPL;     // 적분 게인 (이산화)
-    dcl_pi_charge.Umax = CURRENT_LIMIT;         // 초기 상한값 (동적으로 변경됨)
-    dcl_pi_charge.Umin = -2.0f;                 // 하한값
-    dcl_pi_charge.i10 = 0.0f;                   // 적분기 상태 초기화
-    dcl_pi_charge.i6 = 1.0f;                    // Anti-windup 상태 초기화
+    dcl_pi_charge_cla.Kp = DCL_KP;              // 비례 게인
+    dcl_pi_charge_cla.Ki = DCL_KI * DCL_TSAMPL; // 적분 게인 (이산화)
+    dcl_pi_charge_cla.Umax = CURRENT_LIMIT;     // 초기 상한값 (동적으로 변경됨)
+    dcl_pi_charge_cla.Umin = -2.0f;             // 하한값
+    dcl_pi_charge_cla.i10 = 0.0f;               // 적분기 상태 초기화
+    dcl_pi_charge_cla.i6 = 1.0f;                // Anti-windup 상태 초기화
 
     //=========================================================================
-    // 방전용 PI 컨트롤러 설정
+    // 방전용 CLA PI 컨트롤러 설정
     //=========================================================================
-    dcl_pi_discharge.Kp = DCL_KP;               // 비례 게인
-    dcl_pi_discharge.Ki = DCL_KI * DCL_TSAMPL;  // 적분 게인 (이산화)
-    dcl_pi_discharge.Umax = 2.0f;               // 상한값
-    dcl_pi_discharge.Umin = -CURRENT_LIMIT;     // 초기 하한값 (동적으로 변경됨)
-    dcl_pi_discharge.i10 = 0.0f;                // 적분기 상태 초기화
-    dcl_pi_discharge.i6 = 1.0f;                 // Anti-windup 상태 초기화
+    dcl_pi_discharge_cla.Kp = DCL_KP;               // 비례 게인
+    dcl_pi_discharge_cla.Ki = DCL_KI * DCL_TSAMPL;  // 적분 게인 (이산화)
+    dcl_pi_discharge_cla.Umax = 2.0f;               // 상한값
+    dcl_pi_discharge_cla.Umin = -CURRENT_LIMIT;     // 초기 하한값 (동적으로 변경됨)
+    dcl_pi_discharge_cla.i10 = 0.0f;                // 적분기 상태 초기화
+    dcl_pi_discharge_cla.i6 = 1.0f;                 // Anti-windup 상태 초기화
+
+    //=========================================================================
+    // 공유 변수 초기화
+    //=========================================================================
+    charge_rk = 0.0f;    // 충전 기준값
+    charge_yk = 0.0f;    // 충전 피드백값
+    charge_uk = 0.0f;    // 충전 출력값
+    
+    discharge_rk = 0.0f; // 방전 기준값
+    discharge_yk = 0.0f; // 방전 피드백값
+    discharge_uk = 0.0f; // 방전 출력값
+
+    // CLA 초기화 완료 확인
+    Cla1ForceTask8andWait();
 }
 
 /**

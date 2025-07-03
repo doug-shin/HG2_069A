@@ -1,0 +1,77 @@
+/* HG2_CLA.cla
+ * CLA PI 제어 함수 구현
+ * HG2 35kW DC-DC 컨버터 제어 시스템용
+ * 
+ * Task 3: 충전용 PI 제어 (V_max_lim 제어)
+ * Task 4: 방전용 PI 제어 (V_min_lim 제어)
+ */
+
+#include "HG2_CLA_shared.h"
+#include "F2806x_Cla_typedefs.h"
+#include "F2806x_Device.h"
+
+// CLA Task 1 - 미사용
+__interrupt void Cla1Task1(void)
+{
+    // 미사용
+}
+
+// CLA Task 2 - 미사용
+__interrupt void Cla1Task2(void)
+{
+    // 미사용
+}
+
+// CLA Task 3 - 충전용 PI 제어
+__interrupt void Cla1Task3(void)
+{
+    // DCL CLA L1 PI 컨트롤러 실행
+    // 충전 모드: V_max_lim 기준값으로 V_out 제어
+    // 출력: 충전 전류 지령 (양수)
+    charge_uk = DCL_runPI_L1(&dcl_pi_charge_cla, charge_rk, charge_yk);
+    
+    // CLA 파이프라인 정렬을 위한 NOP
+    __mnop();
+    __mnop();
+    __mnop();
+}
+
+// CLA Task 4 - 방전용 PI 제어  
+__interrupt void Cla1Task4(void)
+{
+    // DCL CLA L1 PI 컨트롤러 실행
+    // 방전 모드: V_min_lim 기준값으로 V_out 제어
+    // 출력: 방전 전류 지령 (음수)
+    discharge_uk = DCL_runPI_L1(&dcl_pi_discharge_cla, discharge_rk, discharge_yk);
+    
+    // CLA 파이프라인 정렬을 위한 NOP
+    __mnop();
+    __mnop();
+    __mnop();
+}
+
+// CLA Task 5 - 미사용
+__interrupt void Cla1Task5(void)
+{
+    // 미사용
+}
+
+// CLA Task 6 - 미사용
+__interrupt void Cla1Task6(void)
+{
+    // 미사용
+}
+
+// CLA Task 7 - 미사용
+__interrupt void Cla1Task7(void)
+{
+    // 미사용
+}
+
+// CLA Task 8 - 초기화용 (필요시 사용)
+__interrupt void Cla1Task8(void)
+{
+    // CLA 초기화 확인용 (필요시 사용)
+}
+
+// end of file 

@@ -302,6 +302,31 @@ void ReadGpioInputs(void)
 }
 
 //=============================================================================
+// 시스템 클럭 설정 오버라이드
+//=============================================================================
+
+/**
+ * @brief LOSPCP 설정 오버라이드
+ * 
+ * TI 디바이스서포트 기본값(22.5MHz)을 90MHz로 변경
+ * - 기본값: LOSPCP = 0x0002 → LSPCLK = SYSCLKOUT/4 = 22.5MHz
+ * - 변경값: LOSPCP = 0x0000 → LSPCLK = SYSCLKOUT/1 = 90MHz
+ * 
+ * @note SPI, SCI, CAN 등 주변장치 클럭이 4배 빨라짐
+ *       따라서 보드레이트 계산 시 고려 필요
+ */
+void ConfigLowSpeedClock(void)
+{
+    EALLOW;
+    
+    // Low Speed Peripheral Clock Pre-scaler 설정
+    // 0x0000 = /1 분주 (90MHz), 0x0002 = /4 분주 (22.5MHz)
+    SysCtrlRegs.LOSPCP.all = 0x0000;  // LSPCLK = SYSCLKOUT/1 = 90MHz
+    
+    EDIS;
+}
+
+//=============================================================================
 // SPI 및 SCI 통신 초기화 함수들
 //=============================================================================
 
@@ -353,6 +378,37 @@ void SpiFifoConfig()
 }
 
 /**
+ * @brief SPI-A GPIO 핀 설정 (DAC/ADC 통신용)
+ * - GPIO3: SPISOMIA (수신)
+ * - GPIO16: SPISIMOA (송신)
+ * - GPIO18: SPICLKA (클럭)
+ * - 마스터 모드, 수동 CS 신호 제어
+ * 
+ * @note 기존 F2806x_Spi.c의 InitSpiaGpio() 대체
+ */
+void ConfigSpiaGpio(void)
+{
+    EALLOW;
+
+    // Pull-up 활성화
+    GpioCtrlRegs.GPAPUD.bit.GPIO3 = 0;    // Enable pull-up for GPIO3 (SPISOMIA)
+    GpioCtrlRegs.GPAPUD.bit.GPIO16 = 0;   // Enable pull-up for GPIO16 (SPISIMOA)
+    GpioCtrlRegs.GPAPUD.bit.GPIO18 = 0;   // Enable pull-up for GPIO18 (SPICLKA)
+
+    // 비동기 입력 설정
+    GpioCtrlRegs.GPAQSEL1.bit.GPIO3 = 3;  // Asynch input GPIO3 (SPISOMIA)
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO16 = 3; // Asynch input GPIO16 (SPISIMOA)
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO18 = 3; // Asynch input GPIO18 (SPICLKA)
+
+    // SPI-A 기능 핀으로 설정
+    GpioCtrlRegs.GPAMUX1.bit.GPIO3 = 2;   // Configure GPIO3 for SPISOMIA operation
+    GpioCtrlRegs.GPAMUX2.bit.GPIO16 = 1;  // Configure GPIO16 for SPISIMOA operation
+    GpioCtrlRegs.GPAMUX2.bit.GPIO18 = 1;  // Configure GPIO18 for SPICLKA operation
+
+    EDIS;
+}
+
+/**
  * @brief SCI-A FIFO 초기화 (RS232/RS485 통신용)
  * - F28069 전용 설정 (4-level FIFO)
  * - TX/RX FIFO 활성화
@@ -363,8 +419,6 @@ void SciaFifoConfig(void)
     SciaRegs.SCIFFRX.all = 0x2041; // RX FIFO 설정
     SciaRegs.SCIFFCT.all = 0x0;    // FIFO 제어 설정
 }
-
-Uint16 sci_baud_capture = 0;
 
 /**
  * @brief SCI-A 초기화 (RS232/RS485 Modbus 통신용)
@@ -386,13 +440,64 @@ void InitScia(void)
     SciaRegs.SCICTL2.bit.RXBKINTENA = 0; // RX 브레이크 인터럽트 비활성화
 
     // Baud Rate 설정 (38400bps)
-    sci_baud_capture = SCIA_PRD;
     SciaRegs.SCIHBAUD = SCIA_PRD >> 8;   // High byte
     SciaRegs.SCILBAUD = SCIA_PRD & 0xFF; // Low byte
 
     // SCI 활성화
     SciaRegs.SCICTL1.bit.SWRESET = 1; // 소프트웨어 리셋 해제
     SciaRegs.SCICTL1.all = 0x0023;    // SCI 리셋 해제 및 활성화
+}
+
+/**
+ * @brief SCI-A GPIO 핀 설정 (RS485 통신용)
+ * - GPIO28: SCIRXDA (수신)
+ * - GPIO29: SCITXDA (송신)
+ * - Pull-up 활성화, 비동기 입력 모드
+ * 
+ * @note 기존 F2806x_Sci.c의 InitSciaGpio() 대체
+ */
+void ConfigSciAGpio(void)
+{
+    EALLOW;
+
+    // Pull-up 활성화
+    GpioCtrlRegs.GPAPUD.bit.GPIO28 = 0;    // Enable pull-up for GPIO28 (SCIRXDA)
+    GpioCtrlRegs.GPAPUD.bit.GPIO29 = 0;    // Enable pull-up for GPIO29 (SCITXDA)
+
+    // 비동기 입력 설정 (수신 핀만)
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO28 = 3;  // Asynch input GPIO28 (SCIRXDA)
+
+    // SCI-A 기능 핀으로 설정
+    GpioCtrlRegs.GPAMUX2.bit.GPIO28 = 1;   // Configure GPIO28 for SCIRXDA operation
+    GpioCtrlRegs.GPAMUX2.bit.GPIO29 = 1;   // Configure GPIO29 for SCITXDA operation
+
+    EDIS;
+}
+
+/**
+ * @brief SCI-B GPIO 핀 설정 (Modbus RTU 통신용)
+ * - GPIO22: SCITXDB (송신)  
+ * - GPIO23: SCIRXDB (수신)
+ * - Pull-up 활성화, 비동기 입력 모드
+ * 
+ * @note 기존 F2806x_Sci.c의 InitScibGpio() 대체
+ */
+void ConfigSciBGpio(void)
+{
+    EALLOW;
+
+    // Pull-up 활성화
+    GpioCtrlRegs.GPAPUD.bit.GPIO22 = 0;    // Enable pull-up for GPIO22 (SCITXDB)
+    GpioCtrlRegs.GPAPUD.bit.GPIO23 = 0;    // Enable pull-up for GPIO23 (SCIRXDB)
+
+    // 비동기 입력 설정 (수신 핀만)
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO23 = 3;  // Asynch input GPIO23 (SCIRXDB)
+
+    // SCI-B 기능 핀으로 설정
+    GpioCtrlRegs.GPAMUX2.bit.GPIO22 = 3;   // Configure GPIO22 for SCITXDB operation
+    GpioCtrlRegs.GPAMUX2.bit.GPIO23 = 3;   // Configure GPIO23 for SCIRXDB operation
+
+    EDIS;
 }
 
 extern struct ECAN_REGS ECanaShadow;
